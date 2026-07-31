@@ -1,0 +1,30 @@
+{
+  "name": "hand-controlled-4d",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Local, real-time webcam art app: two tracked hands rotate a 4-dimensional polytope live in-camera, occluded by the user's own hands.",
+  "scripts": {
+    "postinstall": "node scripts/setup-assets.mjs",
+    "assets": "node scripts/setup-assets.mjs",
+    "dev": "npm run assets && vite",
+    "build": "npm run assets && tsc && vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@fontsource-variable/roboto-mono": "^5.3.0",
+    "@fontsource-variable/saira": "^5.3.0",
+    "@fontsource/saira-semi-condensed": "^5.3.0",
+    "@mediapipe/tasks-vision": "^1.0.0",
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "@types/three": "^0.185.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.0",
+    "vitest": "^4.1.10"
+  }
+}

@@ -1,0 +1,1150 @@
+/**
+ * Instrument components: panels, lamps, the plane matrix, the hand schematics,
+ * the motion gauge, telemetry, the console and its controls.
+ *
+ * House rules enforced here:
+ *  - 1px hairlines are for STRUCTURE only. Anything carrying state gets 2px or
+ *    a fill, because the source style's own accessibility warning was "thin
+ *    lines".
+ *  - No blur, anywhere. Elevation is an opacity + border ladder.
+ *  - Nothing animates unless it encodes a state change.
+ */
+
+/* ============================================================= panels */
+
+.panel {
+  border: var(--hairline) solid var(--grid);
+  background: var(--surface-sunken);
+  padding: var(--s-5) var(--s-5) var(--s-6);
+}
+
+/* A title-block heading, as on a technical drawing. */
+.panel__heading {
+  margin: 0 0 var(--s-5);
+  padding-bottom: var(--s-3);
+  border-bottom: var(--hairline) solid var(--grid);
+  font-family: var(--font-display);
+  font-size: var(--text-micro);
+  font-weight: 600;
+  letter-spacing: var(--track-display);
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+
+/* Onboarding highlight: a temporary 2px signal edge, no glow, no scale. */
+.panel[data-highlight="true"],
+.section[data-highlight="true"] {
+  border-color: var(--select);
+  box-shadow: inset 0 0 0 1px var(--select);
+}
+
+/* ============================================================== lamps */
+
+.lamp {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--off);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.5);
+  transition: background var(--t-base) var(--ease-enter);
+}
+
+.lamp--lg {
+  width: 9px;
+  height: 9px;
+}
+
+.lamp[data-state="ok"] {
+  background: var(--ok);
+}
+
+.lamp[data-state="warn"] {
+  background: var(--warn);
+}
+
+.lamp[data-state="crit"] {
+  background: var(--crit);
+  animation: lamp-alert 900ms var(--ease-exit) 2;
+}
+
+@keyframes lamp-alert {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lamp[data-state="crit"] {
+    animation: none;
+  }
+}
+
+/* ======================================================= plane matrix */
+
+.plane-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--s-2);
+}
+
+.plane {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas:
+    "glyph name state"
+    "glyph finger finger"
+    "track track track";
+  align-items: center;
+  gap: 2px var(--s-3);
+  padding: var(--s-3);
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg-dim);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--t-fast) var(--ease-enter),
+    background var(--t-fast) var(--ease-enter), color var(--t-fast) var(--ease-enter);
+}
+
+.plane:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  color: var(--fg);
+}
+
+.plane:disabled {
+  cursor: default;
+  /* Hatching, so "unavailable" survives a greyscale screenshot. */
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent 0 4px,
+    rgba(143, 163, 176, 0.07) 4px 5px
+  );
+  color: var(--fg-faint);
+}
+
+.plane__glyph {
+  grid-area: glyph;
+  width: 26px;
+  height: 26px;
+  overflow: visible;
+}
+
+.plane__axis {
+  stroke: currentColor;
+  stroke-width: 1;
+  opacity: 0.55;
+}
+
+.plane__arc {
+  fill: none;
+  stroke: var(--plane-color, currentColor);
+  stroke-width: 1.5;
+  opacity: 0.35;
+  transition: opacity var(--t-fast) var(--ease-enter);
+}
+
+.plane__axis-label {
+  fill: currentColor;
+  font-family: var(--font-mono);
+  font-size: 8px;
+}
+
+.plane__name {
+  grid-area: name;
+  font-family: var(--font-mono);
+  font-size: var(--text-value);
+  font-weight: 500;
+  color: var(--fg);
+  letter-spacing: 0.04em;
+}
+
+.plane:disabled .plane__name {
+  color: var(--fg-faint);
+}
+
+.plane__state {
+  grid-area: state;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--plane-color, var(--fg-dim));
+}
+
+.plane__finger {
+  grid-area: finger;
+  font-size: 9px;
+  letter-spacing: var(--track-micro);
+  text-transform: uppercase;
+  color: var(--fg-faint);
+}
+
+.plane__track {
+  grid-area: track;
+  position: relative;
+  display: block;
+  height: 3px;
+  margin-top: var(--s-2);
+  background: rgba(143, 163, 176, 0.14);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+/* Signed bar: grows out from the centre so direction is visible. */
+.plane__bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: var(--bar-extent, 0%);
+  background: var(--plane-color, var(--fg-dim));
+}
+
+.plane__bar[data-sign="neg"] {
+  left: auto;
+  right: 50%;
+}
+
+.plane__latch {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  padding: 0 3px;
+  border-radius: 2px;
+  background: var(--drive);
+  color: #041018;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.06em;
+}
+
+/* --- states --- */
+
+.plane[data-state="targeted"] {
+  border-color: var(--plane-color);
+  border-style: dashed;
+  color: var(--fg);
+}
+
+.plane[data-state="active"] {
+  border-color: var(--plane-color);
+  border-width: 2px;
+  padding: calc(var(--s-3) - 1px);
+  background: color-mix(in srgb, var(--plane-color) 14%, var(--surface));
+  color: var(--fg);
+}
+
+.plane[data-state="active"] .plane__arc,
+.plane[data-state="spinning"] .plane__arc {
+  opacity: 1;
+}
+
+.plane[data-state="spinning"] {
+  border-color: color-mix(in srgb, var(--plane-color) 55%, transparent);
+  color: var(--fg);
+}
+
+/* ==================================================== hand schematics */
+
+.role {
+  padding: var(--s-4) 0;
+  border-top: var(--hairline) solid var(--grid);
+}
+
+.role:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.role__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-3);
+}
+
+.role__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-label);
+  font-weight: 600;
+  letter-spacing: var(--track-display);
+  text-transform: uppercase;
+  color: var(--role-color, var(--fg));
+}
+
+.role--drive {
+  --role-color: var(--drive);
+}
+
+.role--select {
+  --role-color: var(--select);
+}
+
+.role__side {
+  font-size: 9px;
+  letter-spacing: var(--track-micro);
+  text-transform: uppercase;
+  color: var(--fg-faint);
+}
+
+.role__lamprow {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin-top: var(--s-2);
+}
+
+.role__lampword {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--fg-dim);
+}
+
+.role[data-present="true"] .role__lampword {
+  color: var(--ok);
+}
+
+.role[data-present="false"] .role__lampword {
+  color: var(--crit);
+}
+
+.role__body {
+  display: grid;
+  grid-template-columns: 46px 1fr;
+  align-items: center;
+  gap: var(--s-4);
+  margin-top: var(--s-3);
+}
+
+.schematic {
+  width: 46px;
+  height: 52px;
+}
+
+.schematic--mirrored {
+  transform: scaleX(-1);
+}
+
+.schematic__palm {
+  fill: rgba(143, 163, 176, 0.08);
+  stroke: var(--border);
+  stroke-width: 1;
+  transition: fill var(--t-instant) var(--ease-enter);
+}
+
+.schematic__finger {
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+.schematic__tip {
+  fill: var(--surface);
+  stroke: var(--border-strong);
+  stroke-width: 1.2;
+}
+
+/* Selector: the tip fills with its plane's colour as the thumb approaches. */
+.role--select .schematic__tip {
+  fill: color-mix(
+    in srgb,
+    var(--tip-color, var(--fg-dim)) calc(var(--tip-level, 0) * 100%),
+    var(--surface)
+  );
+  stroke: color-mix(
+    in srgb,
+    var(--tip-color, var(--border-strong)) calc(var(--tip-level, 0) * 100%),
+    var(--border-strong)
+  );
+  transition: fill var(--t-fast) var(--ease-enter), stroke var(--t-fast) var(--ease-enter);
+}
+
+.schematic__pinch {
+  stroke: var(--drive);
+  stroke-width: 2;
+  opacity: 0;
+  transition: opacity var(--t-instant) var(--ease-enter);
+}
+
+/* Drive: pedal down lights the pinch link; a fist fills the palm. */
+.role--drive[data-contact="true"] .schematic__pinch {
+  opacity: 1;
+}
+
+.role--drive[data-contact="true"] .schematic__palm {
+  fill: color-mix(in srgb, var(--drive) 22%, transparent);
+}
+
+.role__meters {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--s-2) var(--s-3);
+}
+
+.role__metric-label {
+  font-size: 9px;
+  letter-spacing: var(--track-micro);
+  text-transform: uppercase;
+  color: var(--fg-faint);
+}
+
+.role__metric-value,
+.role__gesture {
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.role__gesture {
+  grid-column: 2 / -1;
+  color: var(--role-color, var(--fg));
+  letter-spacing: 0.06em;
+}
+
+.meter {
+  position: relative;
+  display: block;
+  height: 3px;
+  background: rgba(143, 163, 176, 0.14);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.meter__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--meter-fill, 0%);
+  background: var(--role-color, var(--fg-dim));
+}
+
+/* ======================================================= motion gauge */
+
+.gauge__wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.gauge {
+  width: 100%;
+  max-width: 132px;
+  height: auto;
+}
+
+.gauge__track {
+  fill: none;
+  stroke: rgba(143, 163, 176, 0.16);
+  stroke-width: 5;
+  stroke-linecap: butt;
+}
+
+.gauge__fill {
+  fill: none;
+  stroke: var(--drive);
+  stroke-width: 5;
+  stroke-linecap: butt;
+  transition: stroke var(--t-base) var(--ease-enter);
+}
+
+.gauge__ticks line {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+
+.gauge__value {
+  position: absolute;
+  top: 42%;
+  font-family: var(--font-mono);
+  font-size: 19px;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  line-height: 1;
+}
+
+.gauge__unit {
+  position: absolute;
+  top: calc(42% + 20px);
+  font-size: 9px;
+  letter-spacing: var(--track-micro);
+  text-transform: uppercase;
+  color: var(--fg-faint);
+}
+
+.condition {
+  margin: var(--s-4) 0 0;
+  text-align: center;
+}
+
+.condition__word {
+  display: block;
+  font-family: var(--font-display);
+  font-size: var(--text-condition);
+  font-weight: 600;
+  letter-spacing: var(--track-display);
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  line-height: 1.1;
+}
+
+.condition__detail {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--fg-faint);
+  line-height: 1.35;
+}
+
+.panel--motion[data-condition="ACCEL"] .condition__word,
+.panel--motion[data-condition="ACCEL"] .gauge__fill {
+  color: var(--drive);
+  stroke: var(--drive);
+}
+
+.panel--motion[data-condition="BRAKE"] .condition__word {
+  color: var(--crit);
+}
+
+.panel--motion[data-condition="BRAKE"] .gauge__fill {
+  stroke: var(--crit);
+}
+
+.panel--motion[data-condition="COAST"] .condition__word,
+.panel--motion[data-condition="HOLD"] .condition__word,
+.panel--motion[data-condition="GRIP"] .condition__word {
+  color: var(--select);
+}
+
+.panel--motion[data-condition="COAST"] .gauge__fill,
+.panel--motion[data-condition="HOLD"] .gauge__fill,
+.panel--motion[data-condition="GRIP"] .gauge__fill {
+  stroke: var(--select);
+}
+
+.panel--motion[data-condition="FROZEN"] .condition__word {
+  color: var(--warn);
+}
+
+/* ========================================================== telemetry */
+
+.telemetry {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--s-2) var(--s-4);
+  margin: 0;
+}
+
+.telemetry__label {
+  font-size: 9px;
+  letter-spacing: var(--track-micro);
+  text-transform: uppercase;
+  color: var(--fg-faint);
+  align-self: baseline;
+}
+
+.telemetry__value {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+
+/* ============================================================ console */
+
+.console {
+  display: flex;
+  flex-direction: column;
+  width: var(--rail-right-w);
+  height: 100%;
+}
+
+.console__header {
+  flex: 0 0 auto;
+  padding: var(--s-5) var(--s-5) var(--s-4);
+  border-bottom: var(--hairline) solid var(--grid);
+  background: var(--surface);
+}
+
+.console__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-label);
+  font-weight: 600;
+  letter-spacing: var(--track-display);
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+
+.console__body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--s-4) var(--s-5) var(--s-8);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+/* ---------------------------------------------------------- section */
+
+.section {
+  border-bottom: var(--hairline) solid var(--grid);
+}
+
+.section__heading {
+  margin: 0;
+}
+
+.section__toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  width: 100%;
+  padding: var(--s-4) 0;
+  border: 0;
+  background: none;
+  color: var(--fg-dim);
+  font-family: var(--font-display);
+  font-size: var(--text-label);
+  font-weight: 600;
+  letter-spacing: var(--track-display);
+  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--t-fast) var(--ease-enter);
+}
+
+.section__toggle:hover {
+  color: var(--fg);
+}
+
+.section.is-open .section__toggle {
+  color: var(--fg);
+}
+
+/* Drafting-notation marker: a right-angle tick that rotates when open. */
+.section__marker {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform var(--t-fast) var(--ease-enter);
+}
+
+.section.is-open .section__marker {
+  transform: rotate(45deg);
+}
+
+.section__body {
+  display: none;
+  padding-bottom: var(--s-5);
+}
+
+.section.is-open .section__body {
+  display: block;
+}
+
+.section__note {
+  margin: 0 0 var(--s-5);
+  color: var(--fg-faint);
+  font-size: var(--text-label);
+  line-height: 1.45;
+}
+
+.section__subnote {
+  margin: var(--s-6) 0 var(--s-3);
+  padding-top: var(--s-3);
+  border-top: var(--hairline) solid var(--grid);
+  color: var(--fg-faint);
+  font-size: var(--text-label);
+  line-height: 1.4;
+}
+
+/* ------------------------------------------------------------ field */
+
+.field {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--s-2) var(--s-4);
+  padding: var(--s-2) 0;
+}
+
+.field__label {
+  font-size: var(--text-label);
+  color: var(--fg-dim);
+  line-height: 1.3;
+}
+
+.field__control {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  justify-self: end;
+}
+
+.field.is-disabled {
+  opacity: 0.4;
+}
+
+/* Sliders and segmented groups need the full width, so they wrap below. */
+.field--slider,
+.field--numeric {
+  grid-template-columns: 1fr auto;
+}
+
+.field--slider .field__control {
+  grid-column: 1 / -1;
+  justify-self: stretch;
+  width: 100%;
+}
+
+.field:has(> .field__control > .segmented--stacked) .field__control,
+.field:has(> .field__control > .segmented) .field__control {
+  grid-column: 1 / -1;
+  justify-self: stretch;
+  width: 100%;
+}
+
+.field--readout {
+  grid-template-columns: auto 1fr;
+  gap: var(--s-4);
+}
+
+.readout-value {
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  justify-self: end;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+/* -------------------------------------------------------- segmented */
+
+.segmented {
+  display: flex;
+  width: 100%;
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.segmented--stacked {
+  flex-direction: column;
+}
+
+.segmented__item {
+  flex: 1 1 0;
+  min-height: var(--control-h);
+  padding: 0 var(--s-3);
+  border: 0;
+  border-left: var(--hairline) solid var(--border);
+  background: var(--surface);
+  color: var(--fg-dim);
+  font-family: var(--font-display);
+  font-size: var(--text-label);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--t-fast) var(--ease-enter), color var(--t-fast) var(--ease-enter);
+}
+
+.segmented__item:first-child {
+  border-left: 0;
+}
+
+.segmented__item:hover:not(:disabled) {
+  background: var(--surface-raised);
+  color: var(--fg);
+}
+
+.segmented__item.is-on {
+  background: color-mix(in srgb, var(--drive) 20%, var(--surface));
+  color: var(--fg);
+  box-shadow: inset 0 -2px 0 var(--drive);
+}
+
+.segmented__item:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* ----------------------------------------------------------- select */
+
+.select {
+  min-width: 0;
+  max-width: 100%;
+  height: var(--control-h);
+  padding: 0 var(--s-3);
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: var(--text-label);
+}
+
+/* ----------------------------------------------------------- slider */
+
+.slider {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 18px;
+  display: flex;
+  align-items: center;
+}
+
+/* The track is a pseudo-element so dragging never touches layout. */
+.slider::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(143, 163, 176, 0.16);
+}
+
+.slider::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  width: var(--slider-fill, 0%);
+  height: 3px;
+  border-radius: 2px;
+  background: var(--slider-accent, var(--fg-dim));
+}
+
+.slider__input {
+  position: relative;
+  width: 100%;
+  margin: 0;
+  background: none;
+  appearance: none;
+  cursor: pointer;
+}
+
+.slider__input::-webkit-slider-runnable-track {
+  height: 18px;
+  background: none;
+}
+
+.slider__input::-webkit-slider-thumb {
+  appearance: none;
+  width: 3px;
+  height: 14px;
+  border: 0;
+  border-radius: 1px;
+  background: var(--fg);
+  cursor: ew-resize;
+}
+
+.slider__input::-moz-range-track {
+  height: 18px;
+  background: none;
+}
+
+.slider__input::-moz-range-thumb {
+  width: 3px;
+  height: 14px;
+  border: 0;
+  border-radius: 1px;
+  background: var(--fg);
+  cursor: ew-resize;
+}
+
+.slider__value {
+  flex: 0 0 auto;
+  min-width: 3.4em;
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  text-align: right;
+}
+
+/* ---------------------------------------------------------- numeric */
+
+.numeric {
+  display: flex;
+  align-items: stretch;
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.numeric__step {
+  width: 22px;
+  border: 0;
+  background: var(--surface);
+  color: var(--fg-dim);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease-enter), color var(--t-fast) var(--ease-enter);
+}
+
+.numeric__step:hover:not(:disabled) {
+  background: var(--surface-raised);
+  color: var(--fg);
+}
+
+.numeric__input {
+  width: 4.2em;
+  height: var(--control-h);
+  border: 0;
+  border-inline: var(--hairline) solid var(--border);
+  background: var(--surface-sunken);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: var(--text-value);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.numeric__input::-webkit-outer-spin-button,
+.numeric__input::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+/* ----------------------------------------------------------- toggle */
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-height: var(--control-h);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg-dim);
+  cursor: pointer;
+}
+
+.toggle__track {
+  position: relative;
+  width: 30px;
+  height: 15px;
+  border: var(--hairline) solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface-sunken);
+  transition: background var(--t-fast) var(--ease-enter),
+    border-color var(--t-fast) var(--ease-enter);
+}
+
+.toggle__track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--fg-dim);
+  transition: transform var(--t-fast) var(--ease-enter), background var(--t-fast) var(--ease-enter);
+}
+
+.toggle.is-on .toggle__track {
+  border-color: var(--drive);
+  background: color-mix(in srgb, var(--drive) 25%, var(--surface-sunken));
+}
+
+.toggle.is-on .toggle__track::after {
+  transform: translateX(15px);
+  background: var(--drive);
+}
+
+.toggle__word {
+  min-width: 2.2em;
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  letter-spacing: 0.06em;
+  text-align: left;
+}
+
+.toggle.is-on .toggle__word {
+  color: var(--fg);
+}
+
+/* ------------------------------------------------------------ color */
+
+.colorpick {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+}
+
+.colorpick__input {
+  width: 28px;
+  height: var(--control-h);
+  padding: 0;
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--radius-sm);
+  background: none;
+  cursor: pointer;
+}
+
+.colorpick__hex {
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  color: var(--fg-dim);
+}
+
+/* ----------------------------------------------------------- action */
+
+.action {
+  min-height: var(--control-h-lg);
+  padding: 0 var(--s-5);
+  border: var(--hairline) solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg-dim);
+  font-family: var(--font-display);
+  font-size: var(--text-label);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease-enter), color var(--t-fast) var(--ease-enter),
+    border-color var(--t-fast) var(--ease-enter);
+}
+
+.action:hover:not(:disabled) {
+  background: var(--surface-raised);
+  color: var(--fg);
+  border-color: var(--fg-faint);
+}
+
+.action:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.action--primary {
+  border-color: var(--drive);
+  color: var(--fg);
+  background: color-mix(in srgb, var(--drive) 14%, var(--surface));
+}
+
+.action--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--drive) 26%, var(--surface));
+}
+
+.action--lg {
+  min-height: 44px;
+  padding: 0 var(--s-7);
+  font-size: var(--text-body);
+}
+
+.action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  margin-top: var(--s-4);
+}
+
+/* ======================================================== onboarding */
+
+/**
+ * Corner-docked, never a modal, never over the aperture centre. It sits in the
+ * bottom-left gutter so the user's own hands stay fully visible while they
+ * learn the gesture.
+ */
+.calibration {
+  position: fixed;
+  left: var(--s-7);
+  bottom: var(--s-7);
+  width: min(19rem, calc(100vw - 2 * var(--s-7)));
+  padding: var(--s-6);
+  border: var(--hairline) solid var(--border-strong);
+  border-left: 2px solid var(--select);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-2);
+  z-index: var(--z-onboarding);
+}
+
+.calibration__progress {
+  display: flex;
+  gap: var(--s-2);
+  margin: 0 0 var(--s-5);
+  padding: 0;
+  list-style: none;
+}
+
+.calibration__dot {
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  border: var(--hairline) solid var(--border);
+  border-radius: 50%;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  color: var(--fg-faint);
+}
+
+.calibration__dot[data-state="current"] {
+  border-color: var(--select);
+  color: var(--select);
+}
+
+.calibration__dot[data-state="done"] {
+  border-color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 22%, transparent);
+  color: var(--fg);
+}
+
+.calibration__title {
+  margin: 0 0 var(--s-3);
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.calibration__body {
+  margin: 0 0 var(--s-4);
+  color: var(--fg-dim);
+  font-size: var(--text-label);
+  line-height: 1.5;
+}
+
+.calibration__status {
+  margin: 0;
+  min-height: 1.2em;
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  color: var(--fg-faint);
+}
+
+.calibration[data-satisfied="true"] .calibration__status {
+  color: var(--ok);
+}
+
+.calibration__actions {
+  display: flex;
+  gap: var(--s-3);
+  margin-top: var(--s-5);
+}
+
+/* Presentation mode is the artwork: no teaching furniture on top of it. */
+.shell[data-mode="presentation"] ~ #onboarding-mount .calibration {
+  display: none;
+}

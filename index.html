@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>Hand-Controlled 4D</title>
+  </head>
+  <body>
+    <!--
+      InstrumentShell: left instrumentation rail / dimensional viewport / console.
+      The aperture in the centre is sized in JS to the stage, never to the window,
+      so opening a rail reframes the composition instead of cropping it.
+    -->
+    <div id="shell" class="shell" data-mode="normal" data-chrome="shown">
+      <button
+        id="rail-left-tab"
+        type="button"
+        class="rail-tab rail-tab--left"
+        aria-controls="rail-left"
+        aria-expanded="true"
+      >
+        <span class="rail-tab__label">Instrumentation</span>
+      </button>
+
+      <aside id="rail-left" class="rail rail--left" aria-label="Gesture instrumentation">
+        <div class="rail__scroll"></div>
+      </aside>
+
+      <main id="stage" class="stage">
+        <div id="aperture" class="aperture">
+          <canvas id="scene"></canvas>
+          <canvas id="overlay"></canvas>
+
+          <div id="band-top" class="band band--top"></div>
+          <div id="band-bottom" class="band band--bottom"></div>
+
+          <div id="rec-indicator" class="rec-indicator" hidden>
+            <span class="rec-dot"></span>REC <span id="rec-time">0:00</span>
+          </div>
+        </div>
+
+        <div id="status" class="status" role="status" aria-live="polite"></div>
+      </main>
+
+      <aside
+        id="rail-right"
+        class="rail rail--right"
+        aria-label="Instrument console"
+        data-open="true"
+      ></aside>
+
+      <button
+        id="rail-right-tab"
+        type="button"
+        class="rail-tab rail-tab--right"
+        aria-controls="rail-right"
+        aria-expanded="true"
+      >
+        <span class="rail-tab__label">Console</span>
+      </button>
+    </div>
+
+    <div id="onboarding-mount"></div>
+
+    <div id="shortcuts" class="shortcuts" hidden role="dialog" aria-modal="false" aria-labelledby="shortcuts-title">
+      <header class="shortcuts__header">
+        <h2 id="shortcuts-title" class="shortcuts__title">Keyboard</h2>
+        <button id="shortcuts-close" type="button" class="action" aria-label="Close shortcuts">Close</button>
+      </header>
+      <dl class="shortcuts__list">
+        <dt>1 – 6</dt><dd>Select polytope</dd>
+        <dt>P</dt><dd>Toggle projection</dd>
+        <dt>M</dt><dd>Control mode</dd>
+        <dt>O</dt><dd>Reset orientation</dd>
+        <dt>Space</dt><dd>Freeze / unfreeze rotation</dd>
+        <dt>W (hold)</dt><dd>Accelerate latched planes</dd>
+        <dt>S (hold)</dt><dd>Brake</dd>
+        <dt>D</dt><dd>Diagnostic mode</dd>
+        <dt>X</dt><dd>Presentation mode</dd>
+        <dt>Esc</dt><dd>Back to normal mode</dd>
+        <dt>G</dt><dd>Show / hide console</dd>
+        <dt>F</dt><dd>Fullscreen</dd>
+        <dt>V</dt><dd>Record clip</dd>
+        <dt>R</dt><dd>Reset all settings</dd>
+        <dt>?</dt><dd>This sheet</dd>
+      </dl>
+      <p class="shortcuts__note">
+        Planes can be latched from the rotation-plane matrix with the arrow keys and
+        Space, so the instrument is fully operable with no hands in frame.
+      </p>
+    </div>
+
+    <div id="boot" class="boot">
+      <div class="boot__frame">
+        <p class="boot__eyebrow">Gestural instrument</p>
+        <h1 class="boot__title">Hand-Controlled 4D</h1>
+        <p class="boot__lede">
+          Two hands drive a four-dimensional polytope, composited live into your own
+          camera image. One hand picks the plane of rotation; the other is the pedal.
+        </p>
+        <div class="boot__actions">
+          <button id="start" type="button" class="action action--primary action--lg">
+            Enable webcam
+          </button>
+          <button id="start-synthetic" type="button" class="action action--lg">
+            Synthetic mode
+          </button>
+        </div>
+        <p id="boot-status" class="boot__status" role="status" aria-live="polite"></p>
+        <p class="boot__fine">
+          Everything runs locally in this browser. No frame ever leaves the computer.
+        </p>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

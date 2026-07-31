@@ -1,0 +1,601 @@
+/**
+ * Shell, stage and boot. Component styles live in ui/instrument.css, tokens in
+ * ui/tokens.css; both are imported from main.ts in cascade order (tokens ->
+ * base -> components) rather than with @import, which postcss-import resolves
+ * against the project root instead of this file.
+ *
+ * Tokens are the only source of colour, type, space and duration.
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  overflow: hidden;
+}
+
+/* An author `display` rule outranks the UA stylesheet's [hidden] rule. */
+[hidden] {
+  display: none !important;
+}
+
+:focus-visible {
+  outline: 2px solid var(--drive);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* ============================================================ shell */
+
+.shell {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  align-items: stretch;
+  background: var(--bg);
+}
+
+/* ============================================================= rails */
+
+.rail {
+  flex: 0 0 auto;
+  position: relative;
+  background: var(--surface);
+  border-inline: var(--hairline) solid var(--grid);
+  overflow: hidden;
+  transition: flex-basis var(--t-slow) var(--ease-enter);
+}
+
+.rail--left {
+  flex-basis: var(--rail-left-w);
+  border-inline-start: 0;
+}
+
+.rail--right {
+  flex-basis: var(--rail-right-w);
+  border-inline-end: 0;
+}
+
+.rail[data-open="false"] {
+  flex-basis: 0;
+  border-inline-width: 0;
+}
+
+.rail__scroll,
+.rail--right > .console {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.rail--left .rail__scroll {
+  width: var(--rail-left-w);
+  padding: var(--s-5) var(--s-5) var(--s-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+}
+
+/* The tab is the collapsed rail's only affordance: a vertical title strip. */
+.rail-tab {
+  flex: 0 0 var(--tab-w);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-inline: var(--hairline) solid var(--grid);
+  background: var(--surface-sunken);
+  color: var(--fg-dim);
+  cursor: pointer;
+  transition: color var(--t-fast) var(--ease-enter),
+    background var(--t-fast) var(--ease-enter);
+}
+
+.rail-tab:hover {
+  color: var(--fg);
+  background: var(--surface-raised);
+}
+
+.rail-tab__label {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-family: var(--font-display);
+  font-size: var(--text-micro);
+  font-weight: 600;
+  letter-spacing: var(--track-display);
+  text-transform: uppercase;
+}
+
+.rail-tab[aria-expanded="true"] .rail-tab__label {
+  color: var(--fg);
+}
+
+/* ============================================================= stage */
+
+.stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Pure black around the composition so an OBS crop has a clean edge. */
+  background: #000;
+  z-index: var(--z-stage);
+}
+
+/* Sized in JS to the letterboxed composition; the canvases fill it exactly. */
+.aperture {
+  position: relative;
+  display: block;
+  overflow: hidden;
+}
+
+/**
+ * A drafting corner-frame inscribed on the aperture: it marks the recorded
+ * boundary without putting a box around the picture.
+ */
+.aperture::before,
+.aperture::after {
+  content: "";
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border: var(--hairline) solid var(--border);
+  pointer-events: none;
+  opacity: 0.75;
+  z-index: var(--z-band);
+}
+
+.aperture::before {
+  top: 0;
+  left: 0;
+  border-inline-end: 0;
+  border-block-end: 0;
+}
+
+.aperture::after {
+  bottom: 0;
+  right: 0;
+  border-inline-start: 0;
+  border-block-start: 0;
+}
+
+#scene,
+#overlay {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+#overlay {
+  pointer-events: none;
+}
+
+/* ============================================================= bands */
+
+/**
+ * The only chrome allowed inside the aperture. Pinned to the extreme edges and
+ * capped in height so they never reach the centre where the face and hands are.
+ */
+.band {
+  position: absolute;
+  inset-inline: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-3) var(--s-5);
+  min-height: 30px;
+  pointer-events: none;
+  z-index: var(--z-band);
+  font-family: var(--font-display);
+  font-size: var(--text-micro);
+  font-weight: 600;
+  letter-spacing: var(--track-micro);
+  text-transform: uppercase;
+  transition: opacity var(--t-decay) var(--ease-exit);
+}
+
+.band--top {
+  top: 0;
+  /* An opaque scrim, not translucency: video luminance is unknowable. */
+  background: linear-gradient(to bottom, var(--scrim) 0%, rgba(4, 7, 11, 0) 100%);
+}
+
+.band--bottom {
+  bottom: 0;
+  background: linear-gradient(to top, var(--scrim) 0%, rgba(4, 7, 11, 0) 100%);
+}
+
+.band__group {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+}
+
+.band__group--end {
+  margin-inline-start: auto;
+}
+
+.band__word {
+  color: var(--fg);
+}
+
+.band__group[data-state="lost"] .band__word {
+  color: var(--crit);
+}
+
+.band__group[data-state="partial"] .band__word {
+  color: var(--warn);
+}
+
+.band__chips {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-inline-start: auto;
+}
+
+.chip {
+  padding: 2px var(--s-3);
+  border: var(--hairline) solid var(--chip-color, var(--border));
+  border-radius: var(--radius-sm);
+  color: var(--chip-color, var(--fg-dim));
+  background: rgba(4, 7, 11, 0.7);
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  letter-spacing: 0.04em;
+}
+
+.chip--idle {
+  --chip-color: var(--fg-faint);
+  opacity: 0.7;
+}
+
+.band__value {
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  color: var(--fg);
+  letter-spacing: 0.02em;
+  text-transform: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.band__value--dim {
+  color: var(--fg-dim);
+}
+
+.band__sep {
+  color: var(--fg-faint);
+}
+
+.band__condition {
+  color: var(--fg-dim);
+}
+
+.band__group[data-condition="ACCEL"] .band__condition {
+  color: var(--drive);
+}
+
+.band__group[data-condition="BRAKE"] .band__condition {
+  color: var(--crit);
+}
+
+.band__group[data-condition="COAST"] .band__condition,
+.band__group[data-condition="HOLD"] .band__condition,
+.band__group[data-condition="GRIP"] .band__condition {
+  color: var(--select);
+}
+
+/* ==================================================== status / record */
+
+.status {
+  position: absolute;
+  /* Clear of the top band, so a transient message never sits on the tracking
+     lamp it might be explaining. */
+  top: 46px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(46rem, 80%);
+  padding: var(--s-4) var(--s-6);
+  border: var(--hairline) solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--scrim);
+  color: var(--fg);
+  font-size: var(--text-body);
+  line-height: 1.5;
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  z-index: var(--z-drawer);
+  transition: opacity var(--t-base) var(--ease-enter);
+}
+
+.status.visible {
+  opacity: 1;
+}
+
+.status.error {
+  border-color: var(--crit);
+  color: #ffdede;
+}
+
+.rec-indicator {
+  position: absolute;
+  top: var(--s-6);
+  right: var(--s-6);
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-2) var(--s-4);
+  border: var(--hairline) solid var(--crit);
+  border-radius: var(--radius);
+  background: var(--scrim);
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  letter-spacing: 0.08em;
+  z-index: var(--z-band);
+}
+
+.rec-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--crit);
+  animation: blink 1.1s steps(2, end) infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0.15;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rec-dot {
+    animation: none;
+  }
+}
+
+/* ============================================================== modes */
+
+/* PRESENTATION — the artwork. Rails gone, chrome decays after stillness. */
+.shell[data-mode="presentation"] .rail,
+.shell[data-mode="presentation"] .rail-tab {
+  flex-basis: 0;
+  border-inline-width: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.shell[data-mode="presentation"][data-chrome="hidden"] .band {
+  opacity: 0;
+}
+
+/* NORMAL — telemetry is not a normal-mode concern. */
+.shell:not([data-mode="diagnostic"]) .panel--telemetry {
+  display: none;
+}
+
+/* ============================================================== boot */
+
+.boot {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-8);
+  background: radial-gradient(ellipse at 50% 40%, #0b131b 0%, var(--bg) 68%);
+  z-index: var(--z-boot);
+}
+
+.boot.hidden {
+  display: none;
+}
+
+.boot__frame {
+  position: relative;
+  max-width: 42rem;
+  padding: var(--s-8);
+  border: var(--hairline) solid var(--border);
+  background: rgba(8, 12, 17, 0.6);
+}
+
+.boot__eyebrow {
+  margin: 0 0 var(--s-4);
+  font-family: var(--font-display);
+  font-size: var(--text-micro);
+  font-weight: 600;
+  letter-spacing: var(--track-display);
+  text-transform: uppercase;
+  color: var(--drive);
+}
+
+.boot__title {
+  margin: 0 0 var(--s-5);
+  font-family: var(--font-display);
+  font-size: clamp(1.9rem, 4vw, 2.7rem);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1.05;
+}
+
+.boot__lede {
+  margin: 0 0 var(--s-7);
+  max-width: 34rem;
+  color: var(--fg-dim);
+  font-size: var(--text-body);
+  line-height: 1.6;
+}
+
+.boot__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-4);
+}
+
+.boot__status {
+  margin: var(--s-6) 0 0;
+  min-height: 1.3em;
+  color: var(--drive);
+  font-family: var(--font-mono);
+  font-size: var(--text-value);
+}
+
+.boot__fine {
+  margin: var(--s-5) 0 0;
+  color: var(--fg-faint);
+  font-size: var(--text-label);
+}
+
+/* ========================================================= shortcuts */
+
+.shortcuts {
+  position: fixed;
+  right: var(--s-7);
+  bottom: var(--s-7);
+  width: min(24rem, calc(100vw - 2 * var(--s-7)));
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: var(--s-6);
+  border: var(--hairline) solid var(--border-strong);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-2);
+  z-index: var(--z-onboarding);
+}
+
+.shortcuts__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-5);
+  margin-bottom: var(--s-5);
+}
+
+.shortcuts__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+  font-weight: 600;
+  letter-spacing: var(--track-display);
+  text-transform: uppercase;
+}
+
+.shortcuts__list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--s-3) var(--s-5);
+  margin: 0;
+  font-size: var(--text-label);
+}
+
+.shortcuts__list dt {
+  font-family: var(--font-mono);
+  color: var(--drive);
+  white-space: nowrap;
+}
+
+.shortcuts__list dd {
+  margin: 0;
+  color: var(--fg-dim);
+}
+
+.shortcuts__note {
+  margin: var(--s-6) 0 0;
+  color: var(--fg-faint);
+  font-size: var(--text-label);
+  line-height: 1.5;
+}
+
+/* ======================================================== responsive */
+
+/**
+ * Rails yield before the aperture does, always.
+ *
+ * The breakpoint is an attribute set by `App.applyLayout()` from the window
+ * width rather than a media query. The aperture is already measured in JS
+ * against the stage, so keeping both on the same signal means a rail can never
+ * change width without the composition being remeasured in the same pass — and
+ * it makes the layouts inspectable by setting one attribute.
+ *
+ *   ultrawide >= 2200  both rails expanded, console in two columns
+ *   full      >= 1400  both rails expanded
+ *   compact   >= 1180  console becomes a drawer over the gutter
+ *   narrow    <  1180  both rails become drawers, stage full-bleed
+ */
+
+.shell[data-layout="full"] {
+  --rail-right-w: 272px;
+}
+
+/* Console becomes a drawer over the gutter, never over the aperture. */
+.shell[data-layout="compact"] .rail--right,
+.shell[data-layout="narrow"] .rail--right {
+  position: absolute;
+  inset-block: 0;
+  right: var(--tab-w);
+  width: var(--rail-right-w);
+  flex-basis: 0 !important;
+  border-inline-start: var(--hairline) solid var(--border);
+  box-shadow: var(--shadow-2);
+  z-index: var(--z-drawer);
+  transform: translateX(calc(100% + var(--tab-w)));
+  transition: transform var(--t-slow) var(--ease-enter);
+}
+
+.shell[data-layout="compact"] .rail--right[data-open="true"],
+.shell[data-layout="narrow"] .rail--right[data-open="true"] {
+  transform: translateX(0);
+}
+
+.shell[data-layout="narrow"] {
+  --rail-left-w: 208px;
+}
+
+.shell[data-layout="narrow"] .rail--left {
+  position: absolute;
+  inset-block: 0;
+  left: var(--tab-w);
+  width: var(--rail-left-w);
+  flex-basis: 0 !important;
+  border-inline-end: var(--hairline) solid var(--border);
+  box-shadow: var(--shadow-2);
+  z-index: var(--z-drawer);
+  transform: translateX(calc(-100% - var(--tab-w)));
+  transition: transform var(--t-slow) var(--ease-enter);
+}
+
+.shell[data-layout="narrow"] .rail--left[data-open="true"] {
+  transform: translateX(0);
+}
+
+/* Ultrawide: the console gets two columns rather than a longer scroll. */
+.shell[data-layout="ultrawide"] {
+  --rail-left-w: 264px;
+  --rail-right-w: 460px;
+}
+
+.shell[data-layout="ultrawide"] .console__body {
+  columns: 2;
+  column-gap: var(--s-6);
+}
+
+.shell[data-layout="ultrawide"] .console__body > .section {
+  break-inside: avoid;
+}

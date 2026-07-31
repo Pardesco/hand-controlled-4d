@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.local
+.DS_Store
+
+# Fetched/copied by scripts/setup-assets.mjs at install time.
+public/models/*.task
+public/mediapipe/
+
+# Third-party skill vendored in for the UI pass (nextlevelbuilder/ui-ux-pro-max-skill).
+# Not ours to redistribute — reinstall with `npx uipro-cli init --ai claude`.
+.claude/skills/

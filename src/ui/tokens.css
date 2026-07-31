@@ -1,0 +1,122 @@
+/**
+ * Design tokens — the single source of truth for colour, type, space, border,
+ * radius, elevation and motion. See DESIGN.md §7-§10.
+ *
+ * Nothing in the UI may hard-code a colour or a duration. The four plane hues
+ * are lifted from `planeDrive.ts` FINGER_MAP so the dot on the fingertip in the
+ * recorded frame and the cell in the plane matrix are the same colour by
+ * construction.
+ */
+
+:root {
+  /* ---------------------------------------------------------- surfaces */
+  --bg: #05070a;
+  --surface: #0a0e13;
+  --surface-raised: #111820;
+  --surface-sunken: #060a0e;
+  --scrim: rgba(4, 7, 11, 0.82);
+
+  --grid: rgba(127, 151, 163, 0.1);
+  --border: rgba(127, 151, 163, 0.22);
+  --border-strong: rgba(127, 151, 163, 0.4);
+
+  /* ------------------------------------------------------------- text */
+  --fg: #dff6ff;
+  --fg-dim: #8fa3b0;
+  --fg-faint: #5d6d78;
+
+  /* ----------------------------------------------------- role signals */
+  --drive: #3dd6ff; /* pedal hand: acceleration, braking, throttle */
+  --select: #ffb14d; /* selector hand: plane contact */
+  --dim-active: #ff4fa3; /* "a dimensional plane is live" */
+
+  /* ------------------------------------------------- rotation planes  */
+  /* Must match FINGER_MAP in planeDrive.ts. */
+  --plane-zw: #ff4fa3;
+  --plane-yw: #35e0d6;
+  --plane-xw: #ff8a3d;
+  --plane-xy: #ffd23d;
+  --plane-view: #8fa3b0; /* XZ / YZ: view orbit only, never tap-selectable */
+
+  /* ----------------------------------------------------------- status */
+  --ok: #4ade80;
+  --warn: #ffb14d;
+  --crit: #ff5c5c;
+  --off: rgba(143, 163, 176, 0.35);
+
+  /* ------------------------------------------------------- typography */
+  --font-display: "Saira Semi Condensed", "Saira", system-ui, sans-serif;
+  --font-ui: "Saira", system-ui, sans-serif;
+  --font-mono: "Roboto Mono", "Cascadia Mono", Consolas, monospace;
+
+  --text-micro: 10px;
+  --text-label: 11px;
+  --text-value: 12px;
+  --text-body: 13px;
+  --text-title: 15px;
+  --text-condition: 20px;
+
+  --track-display: 0.14em;
+  --track-micro: 0.1em;
+
+  /* ------------------------------------------------------------ space */
+  --s-1: 2px;
+  --s-2: 4px;
+  --s-3: 6px;
+  --s-4: 8px;
+  --s-5: 12px;
+  --s-6: 16px;
+  --s-7: 24px;
+  --s-8: 32px;
+
+  /* --------------------------------------------------- shape / border */
+  --radius-sm: 2px;
+  --radius: 3px;
+  --radius-lg: 5px;
+  --hairline: 1px;
+
+  /* --------------------------------------------------------- controls */
+  --control-h: 26px;
+  --control-h-lg: 32px;
+  --rail-left-w: 232px;
+  --rail-right-w: 300px;
+  --tab-w: 34px;
+
+  /* -------------------------------------------------------- elevation */
+  /* Elevation is an opacity + border ladder, never a blur. */
+  --shadow-1: 0 1px 0 rgba(255, 255, 255, 0.03) inset;
+  --shadow-2: 0 8px 24px rgba(0, 0, 0, 0.55);
+
+  /* ----------------------------------------------------------- motion */
+  --t-instant: 90ms;
+  --t-fast: 140ms;
+  --t-base: 180ms;
+  --t-slow: 240ms;
+  --t-decay: 600ms;
+  --ease-enter: cubic-bezier(0.16, 0.84, 0.44, 1);
+  --ease-exit: cubic-bezier(0.5, 0, 0.84, 0.16);
+
+  /* ---------------------------------------------------------- z-index */
+  --z-stage: 10;
+  --z-band: 20;
+  --z-rail: 30;
+  --z-drawer: 40;
+  --z-onboarding: 50;
+  --z-boot: 60;
+
+  color-scheme: dark;
+}
+
+/**
+ * Reduced motion removes TRANSITIONS, not values. An instrument that stops
+ * reporting is broken, not accessible — live bars and gauges still track.
+ */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --t-instant: 1ms;
+    --t-fast: 1ms;
+    --t-base: 1ms;
+    --t-slow: 1ms;
+    --t-decay: 1ms;
+  }
+}
