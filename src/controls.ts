@@ -742,6 +742,10 @@ export function createControls(config: ControlsConfig): Controls {
   const activeCamera = readout("Active source", config.cameraLabel);
   system.add(activeCamera.el);
 
+  // Which build you are actually looking at. A stale asset served from a CDN
+  // edge is otherwise indistinguishable from a bug in the current build.
+  system.add(readout("Build", __APP_VERSION__).el);
+
   const stateReadout = readout("State", "—");
   system.add(stateReadout.el);
   const fpsReadout = readout("Render / tracking", "—");

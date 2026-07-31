@@ -1,5 +1,10 @@
 /** Shared data model. All 2D points are normalized (0..1) unless stated otherwise. */
 
+/** Build version, injected by Vite from package.json. */
+declare global {
+  const __APP_VERSION__: string;
+}
+
 export type Point2D = {
   x: number;
   y: number;

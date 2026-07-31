@@ -1,7 +1,7 @@
 {
   "name": "hand-controlled-4d",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "description": "Local, real-time webcam art app: two tracked hands rotate a 4-dimensional polytope live in-camera, occluded by the user's own hands.",
   "scripts": {
