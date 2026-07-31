@@ -158,3 +158,21 @@ New here:
   is the hands-free fallback -- a separate control path, deliberately not routed
   through the gesture pipeline. See `DESIGN.md` for the design system and the
   reasoning behind it.
+
+## Licence and third-party assets
+
+This project is MIT licensed (see `LICENSE`).
+
+Two things are deliberately *not* in the repository and are fetched or
+installed separately:
+
+- **MediaPipe hand-landmarker WASM runtime + `.task` model** (Google, Apache
+  2.0) -- pulled into `public/` by `scripts/setup-assets.mjs` on `npm install`.
+  Nothing is redistributed here and nothing is sent anywhere at runtime; the
+  model runs locally in the browser.
+- **The UI/UX Pro Max skill** used for the design pass lives in
+  `.claude/skills/` and is gitignored. It is
+  [nextlevelbuilder/ui-ux-pro-max-skill](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill),
+  not ours to redistribute. Reinstall with `npx uipro-cli init --ai claude`.
+
+`three` and `@mediapipe/tasks-vision` are ordinary npm dependencies.
