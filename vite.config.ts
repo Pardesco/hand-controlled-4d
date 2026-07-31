@@ -17,7 +17,11 @@ export default defineConfig({
   },
   build: {
     target: "es2022",
-    sourcemap: true,
+    // Sourcemaps for local and standalone builds, but not for the sub-path
+    // deploy: that one is the public site, the repo it is built from is public
+    // too, so a 3.5 MB .map per deploy buys nothing that GitHub does not
+    // already give you.
+    sourcemap: !process.env.VITE_BASE,
   },
   test: {
     environment: "node",
