@@ -466,6 +466,24 @@ export function createControls(config: ControlsConfig): Controls {
   optics.add(
     bind(
       instrumentSlider({
+        label: "Edge smoothness",
+        value: settings.edgeSmoothness,
+        min: 0,
+        max: 1,
+        step: 0.05,
+        onChange: (value) => {
+          settings.edgeSmoothness = value;
+          onChange("edgeSmoothness");
+        },
+        hint: "How finely curved (stereographic) edges are subdivided. Costs main-thread CPU every frame, alongside hand tracking — raise it only if the render frame time has room.",
+      }),
+      () => settings.edgeSmoothness
+    ).el
+  );
+
+  optics.add(
+    bind(
+      instrumentSlider({
         label: "Glow",
         value: settings.glowStrength,
         min: 0,

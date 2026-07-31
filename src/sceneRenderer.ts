@@ -21,12 +21,64 @@ import * as THREE from "three";
 import { cropTransformToUniform, type CropTransform } from "./coords.ts";
 import type { HandMask } from "./handMask.ts";
 import type { Polytope4D } from "./polychora.ts";
-import { applyToVec, projectTo3D, type Mat4, type Vec3, type Vec4 } from "./polytope4d.ts";
+import {
+  applyToVec,
+  arcPoint,
+  projectTo3D,
+  PROJECTION_CURVES_EDGES,
+  PROJECTION_EYE_W,
+  type Mat4,
+  type ProjectionMode,
+  type Vec3,
+  type Vec4,
+} from "./polytope4d.ts";
 import type { Point2D } from "./types.ts";
 
 /** Enough for the 120-cell; instanced buffers are allocated once at maximum. */
 const MAX_EDGES = 1200;
 const MAX_VERTICES = 600;
+
+/**
+ * Instance budget for the edge meshes. Curved edges are drawn as a fan of short
+ * straight tubes, so an edge costs between 1 and MAX_EDGE_SEGMENTS instances.
+ *
+ * 5x the 1200 edges of the 120-cell. Subdivision is adaptive, so in practice
+ * only the handful of edges swept near the projection pole ever approach the
+ * per-edge cap and measured totals sit far below this; the budget exists so a
+ * pathological orientation degrades smoothly instead of overrunning the buffer.
+ */
+const MAX_EDGE_INSTANCES = 6000;
+
+/**
+ * Hard cap on the subdivision of a single edge.
+ *
+ * Generous on purpose. As an edge sweeps past the projection pole its image is
+ * magnified up to 21x and can arc right across the frame; those few edges are
+ * the most conspicuous thing on screen, and a low cap leaves them visibly
+ * faceted no matter how tight the tolerance. Only a handful of edges are ever
+ * near the pole at once, so the aggregate cost of a high cap is small and the
+ * instance budget still bounds the worst case.
+ */
+const MAX_EDGE_SEGMENTS = 24;
+
+/**
+ * How far a chord may sag from its true arc before the edge is subdivided,
+ * in world units, at the extremes of the `edgeSmoothness` control. The object
+ * spans roughly 3 world units across the frame, so the fine end is about an
+ * eighth of a percent of frame height and the coarse end about one percent.
+ *
+ * This is deliberately a user-facing tradeoff rather than a constant: the
+ * subdivision cost is paid in main-thread JS, alongside MediaPipe inference,
+ * so the right setting depends on the viewer's CPU and not on ours. The
+ * default is the safe end (see DEFAULT_SCENE_STYLE).
+ */
+const EDGE_TOLERANCE_COARSE = 0.024;
+const EDGE_TOLERANCE_FINE = 0.003;
+
+function edgeTolerance(smoothness: number): number {
+  const t = smoothness < 0 ? 0 : smoothness > 1 ? 1 : smoothness;
+  return EDGE_TOLERANCE_COARSE + (EDGE_TOLERANCE_FINE - EDGE_TOLERANCE_COARSE) * t;
+}
 /** MediaPipe hands have 21 landmarks; the expanded hull can never exceed that. */
 const MAX_HULL_POINTS = 24;
 
@@ -50,6 +102,11 @@ export type SceneStyle = {
   objectCenterY: number;
   /** Fingertip ring / frame accent colour. */
   accentColor: string;
+  /**
+   * How finely curved (stereographic) edges are subdivided, 0..1. Costs
+   * main-thread CPU per frame, so it defaults to the conservative end.
+   */
+  edgeSmoothness: number;
 };
 
 export const DEFAULT_SCENE_STYLE: SceneStyle = {
@@ -61,6 +118,7 @@ export const DEFAULT_SCENE_STYLE: SceneStyle = {
   objectScale: 0.95,
   objectCenterY: 0.38,
   accentColor: "#35e0d6",
+  edgeSmoothness: 0.5,
 };
 
 export type RingFeedback = {
@@ -105,6 +163,21 @@ function disposeMaterial(material: THREE.Material | THREE.Material[]): void {
   else material.dispose();
 }
 
+/**
+ * Flags the first `count` elements of an instance attribute for upload.
+ *
+ * Without a range three re-uploads the whole buffer, which for edge meshes
+ * sized to MAX_EDGE_INSTANCES is several megabytes per frame regardless of how
+ * few instances are actually drawn. three clears the ranges itself once the
+ * buffer has been written.
+ */
+function markRange(attribute: THREE.InstancedBufferAttribute | null, count: number): void {
+  if (!attribute || count <= 0) return;
+  attribute.clearUpdateRanges();
+  attribute.addUpdateRange(0, count);
+  attribute.needsUpdate = true;
+}
+
 export class SceneRenderer {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
@@ -129,6 +202,17 @@ export class SceneRenderer {
   private chromaB: THREE.InstancedMesh;
   private joints: THREE.InstancedMesh;
   private objectGroup = new THREE.Group();
+  /**
+   * Direct handles on the instance buffers. `emitTube` writes floats straight
+   * into these; going through setMatrixAt/setColorAt for every segment of every
+   * edge showed up clearly in the frame profile.
+   */
+  private readonly coreMatrix: Float32Array;
+  private readonly haloMatrix: Float32Array;
+  private readonly chromaAMatrix: Float32Array;
+  private readonly chromaBMatrix: Float32Array;
+  private readonly coreColor: Float32Array;
+  private readonly haloColor: Float32Array;
 
   // Hand occlusion
   private maskMeshes: THREE.Mesh[] = [];
@@ -151,10 +235,17 @@ export class SceneRenderer {
   private readonly scratchVec3: Vec3 = [0, 0, 0];
   private readonly projected = new Float32Array(MAX_VERTICES * 3);
   private readonly wCoords = new Float32Array(MAX_VERTICES);
+  /** Rotated 4D vertices, kept so edge arcs can be traced in the rotated frame. */
+  private readonly rotated4 = new Float64Array(MAX_VERTICES * 4);
+  /** Per-edge subdivision chosen by `planSegments`. */
+  private readonly segmentCounts = new Uint8Array(MAX_EDGES);
+  private readonly arcA: Vec4 = [0, 0, 0, 0];
+  private readonly arcB: Vec4 = [0, 0, 0, 0];
+  private readonly arcMid: Vec4 = [0, 0, 0, 0];
+  /** True while the current projection draws edges as arcs. */
+  private curvedEdges = false;
   private readonly dummy = new THREE.Object3D();
   private readonly colorScratch = new THREE.Color();
-  private readonly up = new THREE.Vector3(0, 1, 0);
-  private readonly edgeDir = new THREE.Vector3();
   private readonly unprojectScratch = new THREE.Vector3();
 
   constructor(private canvas: HTMLCanvasElement) {
@@ -265,7 +356,7 @@ export class SceneRenderer {
     this.core = makeInstanced(
       coreGeometry,
       new THREE.MeshBasicMaterial({ toneMapped: false }),
-      MAX_EDGES
+      MAX_EDGE_INSTANCES
     );
     this.halo = makeInstanced(
       coreGeometry,
@@ -276,7 +367,7 @@ export class SceneRenderer {
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       }),
-      MAX_EDGES
+      MAX_EDGE_INSTANCES
     );
     this.chromaA = makeInstanced(
       coreGeometry,
@@ -288,7 +379,7 @@ export class SceneRenderer {
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       }),
-      MAX_EDGES
+      MAX_EDGE_INSTANCES
     );
     this.chromaB = makeInstanced(
       coreGeometry,
@@ -300,7 +391,7 @@ export class SceneRenderer {
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       }),
-      MAX_EDGES
+      MAX_EDGE_INSTANCES
     );
     this.joints = makeInstanced(
       jointGeometry,
@@ -310,13 +401,20 @@ export class SceneRenderer {
 
     // instanceColor must exist before first render; seed it white.
     for (const mesh of [this.core, this.halo, this.joints]) {
-      const capacity = mesh === this.joints ? MAX_VERTICES : MAX_EDGES;
+      const capacity = mesh === this.joints ? MAX_VERTICES : MAX_EDGE_INSTANCES;
       mesh.instanceColor = new THREE.InstancedBufferAttribute(
         new Float32Array(capacity * 3).fill(1),
         3
       );
       mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
     }
+
+    this.coreMatrix = this.core.instanceMatrix.array as Float32Array;
+    this.haloMatrix = this.halo.instanceMatrix.array as Float32Array;
+    this.chromaAMatrix = this.chromaA.instanceMatrix.array as Float32Array;
+    this.chromaBMatrix = this.chromaB.instanceMatrix.array as Float32Array;
+    this.coreColor = this.core.instanceColor!.array as Float32Array;
+    this.haloColor = this.halo.instanceColor!.array as Float32Array;
 
     this.scene.add(this.objectGroup);
 
@@ -415,16 +513,18 @@ export class SceneRenderer {
 
   setPolytope(polytope: Polytope4D): void {
     this.polytope = polytope;
-    this.core.count = polytope.edges.length;
-    this.halo.count = polytope.edges.length;
-    this.chromaA.count = polytope.edges.length;
-    this.chromaB.count = polytope.edges.length;
+    // Edge instance counts are owned by updateOrientation, which runs before
+    // the next render and knows how far each edge had to be subdivided.
     this.joints.count = polytope.vertices.length;
   }
 
-  /** 4D eye distance; see PROJECTION_EYE_W in polytope4d.ts. */
-  setEyeW(eyeW: number): void {
-    this.eyeW = eyeW;
+  /**
+   * Sets the 4D eye distance and whether edges bow (see PROJECTION_EYE_W and
+   * PROJECTION_CURVES_EDGES in polytope4d.ts).
+   */
+  setProjection(mode: ProjectionMode): void {
+    this.eyeW = PROJECTION_EYE_W[mode];
+    this.curvedEdges = PROJECTION_CURVES_EDGES[mode];
   }
 
   setStyle(style: Partial<SceneStyle>): void {
@@ -465,6 +565,10 @@ export class SceneRenderer {
     const vertices = polytope.vertices;
     for (let i = 0; i < vertices.length; i += 1) {
       const rotated = applyToVec(rotation, vertices[i]!, this.scratchVec4);
+      this.rotated4[i * 4] = rotated[0]!;
+      this.rotated4[i * 4 + 1] = rotated[1]!;
+      this.rotated4[i * 4 + 2] = rotated[2]!;
+      this.rotated4[i * 4 + 3] = rotated[3]!;
       this.wCoords[i] = rotated[3]!;
       const p = projectTo3D(rotated, this.eyeW, this.scratchVec3);
       this.projected[i * 3] = p[0] * objectScale;
@@ -472,41 +576,90 @@ export class SceneRenderer {
       this.projected[i * 3 + 2] = p[2] * objectScale;
     }
 
-    const dummy = this.dummy;
     const edges = polytope.edges;
-    for (let e = 0; e < edges.length; e += 1) {
-      const [i, j] = edges[e]!;
-      const ax = this.projected[i * 3]!;
-      const ay = this.projected[i * 3 + 1]!;
-      const az = this.projected[i * 3 + 2]!;
-      const bx = this.projected[j * 3]!;
-      const by = this.projected[j * 3 + 1]!;
-      const bz = this.projected[j * 3 + 2]!;
-
-      this.edgeDir.set(bx - ax, by - ay, bz - az);
-      const length = Math.max(this.edgeDir.length(), 1e-6);
-      this.edgeDir.divideScalar(length);
-
-      dummy.position.set((ax + bx) * 0.5, (ay + by) * 0.5, (az + bz) * 0.5);
-      dummy.quaternion.setFromUnitVectors(this.up, this.edgeDir);
-      dummy.scale.set(tubeRadius, length, tubeRadius);
-      dummy.updateMatrix();
-      this.core.setMatrixAt(e, dummy.matrix);
-
-      // Halo shares position/length but is fatter.
-      dummy.scale.set(tubeRadius * 3.2, length, tubeRadius * 3.2);
-      dummy.updateMatrix();
-      this.halo.setMatrixAt(e, dummy.matrix);
-      this.chromaA.setMatrixAt(e, dummy.matrix);
-      this.chromaB.setMatrixAt(e, dummy.matrix);
-
-      // Colour by W before projection: depth in the fourth dimension as hue.
-      const w = (this.wCoords[i]! + this.wCoords[j]!) * 0.5;
-      this.colorScratch.setHSL(hueBase - hueRange * w, 1, 0.62);
-      this.core.setColorAt(e, this.colorScratch);
-      this.halo.setColorAt(e, this.colorScratch);
+    const segments = this.segmentCounts;
+    if (this.curvedEdges) {
+      this.planSegments(edges, objectScale);
+    } else {
+      segments.fill(1, 0, edges.length);
     }
 
+    let instance = 0;
+    for (let e = 0; e < edges.length; e += 1) {
+      const [i, j] = edges[e]!;
+      const count = segments[e]!;
+
+      // Straight-chord fast path: one tube, and the only path perspective ever
+      // takes. Identical to the pre-curvature renderer.
+      if (count === 1) {
+        instance = this.emitTube(
+          instance,
+          this.projected[i * 3]!,
+          this.projected[i * 3 + 1]!,
+          this.projected[i * 3 + 2]!,
+          this.projected[j * 3]!,
+          this.projected[j * 3 + 1]!,
+          this.projected[j * 3 + 2]!,
+          (this.wCoords[i]! + this.wCoords[j]!) * 0.5,
+          tubeRadius,
+          hueBase,
+          hueRange
+        );
+        continue;
+      }
+
+      this.readRotated(i, this.arcA);
+      this.readRotated(j, this.arcB);
+      let px = this.projected[i * 3]!;
+      let py = this.projected[i * 3 + 1]!;
+      let pz = this.projected[i * 3 + 2]!;
+      let pw = this.wCoords[i]!;
+
+      for (let k = 1; k <= count; k += 1) {
+        let qx: number;
+        let qy: number;
+        let qz: number;
+        let qw: number;
+        if (k === count) {
+          // Land exactly on the projected vertex so the tube meets its joint.
+          qx = this.projected[j * 3]!;
+          qy = this.projected[j * 3 + 1]!;
+          qz = this.projected[j * 3 + 2]!;
+          qw = this.wCoords[j]!;
+        } else {
+          const m = arcPoint(this.arcA, this.arcB, k / count, this.arcMid);
+          qw = m[3]!;
+          const p = projectTo3D(m, this.eyeW, this.scratchVec3);
+          qx = p[0] * objectScale;
+          qy = p[1] * objectScale;
+          qz = p[2] * objectScale;
+        }
+        instance = this.emitTube(
+          instance,
+          px,
+          py,
+          pz,
+          qx,
+          qy,
+          qz,
+          (pw + qw) * 0.5,
+          tubeRadius,
+          hueBase,
+          hueRange
+        );
+        px = qx;
+        py = qy;
+        pz = qz;
+        pw = qw;
+      }
+    }
+
+    this.core.count = instance;
+    this.halo.count = instance;
+    this.chromaA.count = instance;
+    this.chromaB.count = instance;
+
+    const dummy = this.dummy;
     for (let i = 0; i < vertices.length; i += 1) {
       dummy.position.set(this.projected[i * 3]!, this.projected[i * 3 + 1]!, this.projected[i * 3 + 2]!);
       dummy.quaternion.identity();
@@ -521,14 +674,206 @@ export class SceneRenderer {
     this.chromaA.position.set(chromaSplit, 0, 0);
     this.chromaB.position.set(-chromaSplit, 0, 0);
 
-    this.core.instanceMatrix.needsUpdate = true;
-    this.halo.instanceMatrix.needsUpdate = true;
-    this.chromaA.instanceMatrix.needsUpdate = true;
-    this.chromaB.instanceMatrix.needsUpdate = true;
-    this.joints.instanceMatrix.needsUpdate = true;
-    if (this.core.instanceColor) this.core.instanceColor.needsUpdate = true;
-    if (this.halo.instanceColor) this.halo.instanceColor.needsUpdate = true;
-    if (this.joints.instanceColor) this.joints.instanceColor.needsUpdate = true;
+    // Upload only the instances actually in use. The buffers are sized for the
+    // worst case (MAX_EDGE_INSTANCES), and a full re-upload of all four edge
+    // meshes every frame would move several megabytes per frame for a shape
+    // that is usually nowhere near the cap.
+    const vertexCount = vertices.length;
+    markRange(this.core.instanceMatrix, instance * 16);
+    markRange(this.halo.instanceMatrix, instance * 16);
+    markRange(this.chromaA.instanceMatrix, instance * 16);
+    markRange(this.chromaB.instanceMatrix, instance * 16);
+    markRange(this.joints.instanceMatrix, vertexCount * 16);
+    markRange(this.core.instanceColor, instance * 3);
+    markRange(this.halo.instanceColor, instance * 3);
+    markRange(this.joints.instanceColor, vertexCount * 3);
+  }
+
+  /** Copies a rotated 4D vertex out of the flat buffer into a scratch tuple. */
+  private readRotated(index: number, out: Vec4): Vec4 {
+    out[0] = this.rotated4[index * 4]!;
+    out[1] = this.rotated4[index * 4 + 1]!;
+    out[2] = this.rotated4[index * 4 + 2]!;
+    out[3] = this.rotated4[index * 4 + 3]!;
+    return out;
+  }
+
+  /**
+   * Chooses a subdivision for every edge from how far its chord sags away from
+   * its true arc once projected, and returns the total instance count.
+   *
+   * Measuring in projected world space rather than in 4D is what makes this
+   * affordable: an edge of the 120-cell subtends only ~15 degrees, so it is
+   * nearly straight on the sphere, but stereographic projection magnifies by
+   * eyeW/(eyeW - w) -- up to 21x as an edge sweeps past the pole. The same edge
+   * therefore needs one tube on the far side of the object and a dozen as it
+   * comes round the near side, and only a projected measurement knows which.
+   *
+   * For a circular arc, halving the segment length quarters the sag, so the
+   * segment count needed to bring a sag of `s` under tolerance `tol` goes as
+   * sqrt(s / tol).
+   */
+  private planSegments(edges: readonly [number, number][], objectScale: number): number {
+    const segments = this.segmentCounts;
+    const tolerance = edgeTolerance(this.style.edgeSmoothness);
+    let total = 0;
+    for (let e = 0; e < edges.length; e += 1) {
+      const [i, j] = edges[e]!;
+      this.readRotated(i, this.arcA);
+      this.readRotated(j, this.arcB);
+      const mid = arcPoint(this.arcA, this.arcB, 0.5, this.arcMid);
+      const p = projectTo3D(mid, this.eyeW, this.scratchVec3);
+      const sagX = p[0] * objectScale - (this.projected[i * 3]! + this.projected[j * 3]!) * 0.5;
+      const sagY =
+        p[1] * objectScale - (this.projected[i * 3 + 1]! + this.projected[j * 3 + 1]!) * 0.5;
+      const sagZ =
+        p[2] * objectScale - (this.projected[i * 3 + 2]! + this.projected[j * 3 + 2]!) * 0.5;
+      const sag = Math.sqrt(sagX * sagX + sagY * sagY + sagZ * sagZ);
+      const count =
+        sag <= tolerance
+          ? 1
+          : Math.min(MAX_EDGE_SEGMENTS, Math.ceil(Math.sqrt(sag / tolerance)));
+      segments[e] = count;
+      total += count;
+    }
+
+    // Over budget: scale every edge back proportionally rather than truncating
+    // the tail, which would leave part of the object visibly unsubdivided.
+    if (total > MAX_EDGE_INSTANCES) {
+      const scale = MAX_EDGE_INSTANCES / total;
+      total = 0;
+      for (let e = 0; e < edges.length; e += 1) {
+        const count = Math.max(1, Math.floor(segments[e]! * scale));
+        segments[e] = count;
+        total += count;
+      }
+    }
+    return total;
+  }
+
+  /**
+   * Writes one straight tube spanning a->b into the four edge meshes and
+   * returns the next free instance index.
+   *
+   * This is THE hot path -- it runs once per instance, thousands of times a
+   * frame, on the same main thread as MediaPipe inference and the webcam
+   * texture upload. It therefore writes the instance matrices as raw floats
+   * rather than going through Object3D: the previous
+   * quaternion.setFromUnitVectors + two updateMatrix() + four setMatrixAt()
+   * per tube was measured at roughly three times the cost of the explicit
+   * basis below, and that cost is paid on whatever CPU the viewer happens to
+   * have rather than on the GPU.
+   */
+  private emitTube(
+    index: number,
+    ax: number,
+    ay: number,
+    az: number,
+    bx: number,
+    by: number,
+    bz: number,
+    w: number,
+    tubeRadius: number,
+    hueBase: number,
+    hueRange: number
+  ): number {
+    if (index >= MAX_EDGE_INSTANCES) return index;
+
+    let dx = bx - ax;
+    let dy = by - ay;
+    let dz = bz - az;
+    const length = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1e-6;
+    const invLength = 1 / length;
+    dx *= invLength;
+    dy *= invLength;
+    dz *= invLength;
+
+    // Orthonormal frame with the edge as the cylinder's +Y axis. Crossing with
+    // whichever world axis the edge is LEAST aligned to keeps the cross product
+    // well conditioned. The roll about the edge is arbitrary and can flip as
+    // the edge swings past an axis, which is fine here: the tube is unlit
+    // (MeshBasicMaterial, flat instance colour) and a few pixels across, so its
+    // roll is not observable.
+    const magX = dx < 0 ? -dx : dx;
+    const magY = dy < 0 ? -dy : dy;
+    const magZ = dz < 0 ? -dz : dz;
+    let rx = 0;
+    let ry = 0;
+    let rz = 0;
+    if (magX <= magY && magX <= magZ) rx = 1;
+    else if (magY <= magZ) ry = 1;
+    else rz = 1;
+
+    let ux = dy * rz - dz * ry;
+    let uy = dz * rx - dx * rz;
+    let uz = dx * ry - dy * rx;
+    const invU = 1 / (Math.sqrt(ux * ux + uy * uy + uz * uz) || 1);
+    ux *= invU;
+    uy *= invU;
+    uz *= invU;
+    const vx = dy * uz - dz * uy;
+    const vy = dz * ux - dx * uz;
+    const vz = dx * uy - dy * ux;
+
+    const mx = (ax + bx) * 0.5;
+    const my = (ay + by) * 0.5;
+    const mz = (az + bz) * 0.5;
+
+    // Column-major: [ u*radius | dir*length | v*radius | midpoint ].
+    const o = index * 16;
+    const core = this.coreMatrix;
+    core[o] = ux * tubeRadius;
+    core[o + 1] = uy * tubeRadius;
+    core[o + 2] = uz * tubeRadius;
+    core[o + 3] = 0;
+    core[o + 4] = dx * length;
+    core[o + 5] = dy * length;
+    core[o + 6] = dz * length;
+    core[o + 7] = 0;
+    core[o + 8] = vx * tubeRadius;
+    core[o + 9] = vy * tubeRadius;
+    core[o + 10] = vz * tubeRadius;
+    core[o + 11] = 0;
+    core[o + 12] = mx;
+    core[o + 13] = my;
+    core[o + 14] = mz;
+    core[o + 15] = 1;
+
+    // Halo shares position and length but is fatter; the two chroma ghosts are
+    // the halo transform verbatim, offset by the mesh's own position.
+    const fat = tubeRadius * 3.2;
+    const halo = this.haloMatrix;
+    const chromaA = this.chromaAMatrix;
+    const chromaB = this.chromaBMatrix;
+    halo[o] = chromaA[o] = chromaB[o] = ux * fat;
+    halo[o + 1] = chromaA[o + 1] = chromaB[o + 1] = uy * fat;
+    halo[o + 2] = chromaA[o + 2] = chromaB[o + 2] = uz * fat;
+    halo[o + 3] = chromaA[o + 3] = chromaB[o + 3] = 0;
+    halo[o + 4] = chromaA[o + 4] = chromaB[o + 4] = dx * length;
+    halo[o + 5] = chromaA[o + 5] = chromaB[o + 5] = dy * length;
+    halo[o + 6] = chromaA[o + 6] = chromaB[o + 6] = dz * length;
+    halo[o + 7] = chromaA[o + 7] = chromaB[o + 7] = 0;
+    halo[o + 8] = chromaA[o + 8] = chromaB[o + 8] = vx * fat;
+    halo[o + 9] = chromaA[o + 9] = chromaB[o + 9] = vy * fat;
+    halo[o + 10] = chromaA[o + 10] = chromaB[o + 10] = vz * fat;
+    halo[o + 11] = chromaA[o + 11] = chromaB[o + 11] = 0;
+    halo[o + 12] = chromaA[o + 12] = chromaB[o + 12] = mx;
+    halo[o + 13] = chromaA[o + 13] = chromaB[o + 13] = my;
+    halo[o + 14] = chromaA[o + 14] = chromaB[o + 14] = mz;
+    halo[o + 15] = chromaA[o + 15] = chromaB[o + 15] = 1;
+
+    // Colour by W before projection: depth in the fourth dimension as hue.
+    // Sampling per segment rather than per edge means a curved edge sweeping
+    // through W carries the gradient along its length.
+    const colour = this.colorScratch.setHSL(hueBase - hueRange * w, 1, 0.62);
+    const c = index * 3;
+    const coreColor = this.coreColor;
+    const haloColor = this.haloColor;
+    coreColor[c] = haloColor[c] = colour.r;
+    coreColor[c + 1] = haloColor[c + 1] = colour.g;
+    coreColor[c + 2] = haloColor[c + 2] = colour.b;
+
+    return index + 1;
   }
 
   /**

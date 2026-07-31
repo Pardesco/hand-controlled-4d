@@ -90,6 +90,12 @@ export type Settings = {
   objectScale: number;
   objectCenterY: number;
   accentColor: string;
+  /**
+   * How finely stereographic edges are subdivided into curved tubes, 0..1.
+   * The work is main-thread JS competing with hand-tracking inference, so the
+   * default sits at the conservative end and the ceiling is opt-in.
+   */
+  edgeSmoothness: number;
 
   // Output
   outputAspect: OutputAspect;
@@ -152,6 +158,7 @@ export const DEFAULT_SETTINGS: Settings = {
   objectScale: 0.95,
   objectCenterY: 0.38,
   accentColor: "#35e0d6",
+  edgeSmoothness: 0.5,
 
   outputAspect: "9:16",
   maxPixelRatio: 1.5,
@@ -191,6 +198,7 @@ const RANGES: Partial<Record<keyof Settings, [number, number]>> = {
   hueRange: [-1, 1],
   objectScale: [0.2, 2.5],
   objectCenterY: [0.1, 0.9],
+  edgeSmoothness: [0, 1],
   maxPixelRatio: [0.5, 3],
 };
 

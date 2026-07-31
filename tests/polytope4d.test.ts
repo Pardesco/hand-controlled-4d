@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyToVec,
+  arcPoint,
   composePlaneRotations,
   identity,
   MIN_DEPTH,
@@ -10,6 +11,7 @@ import {
   PLANES,
   planeRotation,
   projectTo3D,
+  PROJECTION_CURVES_EDGES,
   PROJECTION_EYE_W,
   type Mat4,
   type Vec4,
@@ -147,5 +149,105 @@ describe("4D -> 3D projection", () => {
       expect(p[0]).toBeGreaterThan(previous);
       previous = p[0];
     }
+  });
+});
+
+describe("great-circle edge arcs", () => {
+  /** Two unit 4D points ~60 degrees apart, the 8-cell's edge separation. */
+  const a: Vec4 = [0.5, 0.5, 0.5, 0.5];
+  const b: Vec4 = [0.5, 0.5, 0.5, -0.5];
+
+  it("hits the endpoints exactly", () => {
+    expect(Array.from(arcPoint(a, b, 0))).toEqual(a);
+    expect(Array.from(arcPoint(a, b, 1))).toEqual(b);
+  });
+
+  it("stays on the unit 3-sphere for every t", () => {
+    for (let t = 0; t <= 1; t += 0.05) {
+      const p = arcPoint(a, b, t);
+      const norm = Math.hypot(p[0], p[1], p[2], p[3]);
+      expect(norm).toBeCloseTo(1, 12);
+    }
+  });
+
+  it("bulges away from the straight chord", () => {
+    // The defining property: the arc midpoint sits strictly outside the chord
+    // midpoint, because the chord cuts through the interior of the sphere.
+    const mid = arcPoint(a, b, 0.5);
+    const chord: Vec4 = [
+      (a[0] + b[0]) / 2,
+      (a[1] + b[1]) / 2,
+      (a[2] + b[2]) / 2,
+      (a[3] + b[3]) / 2,
+    ];
+    const chordNorm = Math.hypot(chord[0], chord[1], chord[2], chord[3]);
+    expect(chordNorm).toBeLessThan(1);
+    expect(Math.hypot(mid[0], mid[1], mid[2], mid[3])).toBeCloseTo(1, 12);
+  });
+
+  it("is equidistant in angle from both endpoints at t = 0.5", () => {
+    const mid = arcPoint(a, b, 0.5);
+    const dot = (p: Vec4, q: Vec4) => p[0] * q[0] + p[1] * q[1] + p[2] * q[2] + p[3] * q[3];
+    expect(dot(mid, a)).toBeCloseTo(dot(mid, b), 12);
+  });
+
+  it("survives antipodal endpoints instead of returning NaN", () => {
+    // Not reachable from real polytope edges (they are minimum-distance pairs),
+    // but the midpoint of an antipodal pair is the origin and would divide by
+    // zero.
+    const north: Vec4 = [0, 0, 0, 1];
+    const south: Vec4 = [0, 0, 0, -1];
+    const p = arcPoint(north, south, 0.5);
+    for (const c of p) expect(Number.isFinite(c)).toBe(true);
+  });
+
+  it("projects to a visibly curved polyline under stereographic", () => {
+    // The regression this whole feature exists for: sampling the ARC and
+    // projecting must not be collinear.
+    const eyeW = PROJECTION_EYE_W.stereographic;
+    const p0 = projectTo3D(a, eyeW);
+    const p1 = projectTo3D(arcPoint(a, b, 0.5), eyeW);
+    const p2 = projectTo3D(b, eyeW);
+    const sag = Math.hypot(
+      p1[0] - (p0[0] + p2[0]) / 2,
+      p1[1] - (p0[1] + p2[1]) / 2,
+      p1[2] - (p0[2] + p2[2]) / 2
+    );
+    // Well above the renderer's 0.008 world-unit flatness tolerance.
+    expect(sag).toBeGreaterThan(0.05);
+  });
+
+  it("sampling the straight CHORD instead would stay perfectly straight", () => {
+    // Documents why subdivision alone was never going to fix this: projectTo3D
+    // is a central projection, and central projections map straight lines to
+    // straight lines. Interpolating in 4D WITHOUT renormalising onto the sphere
+    // reproduces the same segment however finely it is sampled.
+    const eyeW = PROJECTION_EYE_W.stereographic;
+    const p0 = projectTo3D(a, eyeW);
+    const p2 = projectTo3D(b, eyeW);
+    for (const t of [0.25, 0.5, 0.75]) {
+      const chord: Vec4 = [
+        a[0] + (b[0] - a[0]) * t,
+        a[1] + (b[1] - a[1]) * t,
+        a[2] + (b[2] - a[2]) * t,
+        a[3] + (b[3] - a[3]) * t,
+      ];
+      const p = projectTo3D(chord, eyeW);
+      // Cross product of (p - p0) and (p2 - p0) vanishes iff the three are
+      // collinear.
+      const u = [p[0] - p0[0], p[1] - p0[1], p[2] - p0[2]];
+      const v = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+      const cross = Math.hypot(
+        u[1]! * v[2]! - u[2]! * v[1]!,
+        u[2]! * v[0]! - u[0]! * v[2]!,
+        u[0]! * v[1]! - u[1]! * v[0]!
+      );
+      expect(cross).toBeCloseTo(0, 10);
+    }
+  });
+
+  it("only stereographic bows its edges", () => {
+    expect(PROJECTION_CURVES_EDGES.stereographic).toBe(true);
+    expect(PROJECTION_CURVES_EDGES.perspective).toBe(false);
   });
 });

@@ -178,3 +178,70 @@ export const PROJECTION_EYE_W: Record<ProjectionMode, number> = {
   perspective: 2.2,
   stereographic: 1.05,
 };
+
+/**
+ * Whether edges of this projection are drawn as great-circle arcs rather than
+ * straight chords.
+ *
+ * This is the whole reason stereographic looks different, and it is easy to get
+ * wrong. `projectTo3D` is a CENTRAL projection, and central projections are
+ * projective maps: they send straight lines to straight lines. So sampling
+ * along a straight 4D chord and projecting each sample reproduces the same
+ * straight segment no matter how finely you subdivide it -- subdivision alone
+ * buys nothing.
+ *
+ * Curvature comes from changing the CURVE, not the sampling: an edge of a
+ * polytope inscribed in the 3-sphere is drawn as the geodesic between its
+ * endpoints, i.e. the great-circle arc lying ON the sphere, which bulges away
+ * from the chord through the interior. Stereographic projection is conformal
+ * and circle-preserving, so that arc lands as a circular arc in 3-space -- the
+ * signature curved edges. Perspective is left straight to match the main
+ * viewer, whose `generateCurvePoints` also returns bare endpoints for it.
+ */
+export const PROJECTION_CURVES_EDGES: Record<ProjectionMode, boolean> = {
+  perspective: false,
+  stereographic: true,
+};
+
+/**
+ * Point at parameter `t` along the great-circle arc from `a` to `b`, for points
+ * on the unit 3-sphere (which every vertex is -- polychora.ts normalises to
+ * circumradius 1).
+ *
+ * Normalised linear interpolation, not slerp: it traces exactly the same arc,
+ * just with a non-uniform speed along it. That is fine here because the samples
+ * only need to sit on the arc, and it costs one square root instead of two
+ * trigonometric calls per sample on a path that runs thousands of times a
+ * frame. It is also precisely what the main viewer does, so the two apps bow
+ * their edges identically.
+ *
+ * Degenerate only for antipodal endpoints, where the great circle is not
+ * unique and the midpoint collapses to the origin; polytope edges are
+ * minimum-distance vertex pairs, so that cannot arise, but it falls back to `a`
+ * rather than returning NaN.
+ */
+export function arcPoint(
+  a: Readonly<Vec4>,
+  b: Readonly<Vec4>,
+  t: number,
+  out: Vec4 = [0, 0, 0, 0]
+): Vec4 {
+  const x = a[0] + (b[0] - a[0]) * t;
+  const y = a[1] + (b[1] - a[1]) * t;
+  const z = a[2] + (b[2] - a[2]) * t;
+  const w = a[3] + (b[3] - a[3]) * t;
+  const norm = Math.sqrt(x * x + y * y + z * z + w * w);
+  if (norm < 1e-12) {
+    out[0] = a[0];
+    out[1] = a[1];
+    out[2] = a[2];
+    out[3] = a[3];
+    return out;
+  }
+  const inv = 1 / norm;
+  out[0] = x * inv;
+  out[1] = y * inv;
+  out[2] = z * inv;
+  out[3] = w * inv;
+  return out;
+}

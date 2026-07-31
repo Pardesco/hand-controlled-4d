@@ -31,7 +31,6 @@ import {
   identity,
   orthonormalize,
   PLANES,
-  PROJECTION_EYE_W,
   type PlaneAngles,
   type RotationPlane,
 } from "./polytope4d.ts";
@@ -1116,7 +1115,7 @@ export class App {
       this.controls?.refresh();
     }
     this.renderer.setPolytope(buildPolytope(this.settings.polytope));
-    this.renderer.setEyeW(PROJECTION_EYE_W[this.settings.projection]);
+    this.renderer.setProjection(this.settings.projection);
   }
 
   private applySettings(changedKey?: keyof Settings): void {
@@ -1176,6 +1175,7 @@ export class App {
       objectScale: this.settings.objectScale,
       objectCenterY: this.settings.objectCenterY,
       accentColor: this.settings.accentColor,
+      edgeSmoothness: this.settings.edgeSmoothness,
     });
     this.queueSave();
   }
