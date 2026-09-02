@@ -82,6 +82,11 @@ function edgeTolerance(smoothness: number): number {
 /** MediaPipe hands have 21 landmarks; the expanded hull can never exceed that. */
 const MAX_HULL_POINTS = 24;
 
+/** Edge count at and below which the glow slider applies unattenuated. */
+const HALO_REFERENCE_EDGES = 96;
+/** Opacity of each chromatic ghost pass before density attenuation. */
+const CHROMA_OPACITY = 0.16;
+
 const CAMERA_FOV = 50;
 const CAMERA_DISTANCE = 3.2;
 
@@ -164,6 +169,77 @@ function disposeMaterial(material: THREE.Material | THREE.Material[]): void {
 }
 
 /**
+ * Neon-tube shading for the instanced edge meshes, injected into
+ * MeshBasicMaterial so the per-instance colour path and the glow slider keep
+ * working untouched.
+ *
+ * The whole effect is one term: how squarely the tube's surface faces the
+ * camera. It is 1 on the centre line of a tube and 0 at its silhouette, and
+ * it costs a dot product.
+ *
+ *   core  -- blends towards white where the tube faces the camera, so an edge
+ *            reads as a lit glass tube with a hot filament rather than a flat
+ *            ribbon of one colour.
+ *   halo  -- alpha falls off with that term, so the additive sleeve becomes a
+ *            glow that fades to nothing at its edge instead of a hard band.
+ *
+ * Both are dimmed with view depth: the back of a 120-cell has the same hue as
+ * the front, and without a depth cue the object flattens into a lattice.
+ */
+type NeonKind = "core" | "halo";
+
+const NEON_UNIFORMS = {
+  /** View depth where the depth cue starts and where it reaches `uDepthDim`. */
+  uDepthNear: { value: 0 },
+  uDepthFar: { value: 0 },
+  uDepthDim: { value: 0.45 },
+  /** Halo alpha exponent: higher = tighter glow. */
+  uHaloFalloff: { value: 1.8 },
+  /** Core: how much of the facing term goes to white. */
+  uHotMix: { value: 0.85 },
+};
+
+function neonShading(material: THREE.Material, kind: NeonKind): void {
+  material.customProgramCacheKey = () => `neon:${kind}`;
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, NEON_UNIFORMS);
+    shader.vertexShader =
+      `varying vec3 vNeonNormal;
+      varying vec3 vNeonView;
+      ` +
+      shader.vertexShader.replace(
+        "#include <project_vertex>",
+        `#include <project_vertex>
+        // Instance matrices scale the tube's radial axes uniformly, so the
+        // plain matrix is a valid normal transform for a cylinder's normals.
+        vNeonNormal = normalize(normalMatrix * (mat3(instanceMatrix) * normal));
+        vNeonView = -mvPosition.xyz;`
+      );
+    shader.fragmentShader =
+      `varying vec3 vNeonNormal;
+      varying vec3 vNeonView;
+      uniform float uDepthNear;
+      uniform float uDepthFar;
+      uniform float uDepthDim;
+      uniform float uHaloFalloff;
+      uniform float uHotMix;
+      ` +
+      shader.fragmentShader.replace(
+        "#include <color_fragment>",
+        `#include <color_fragment>
+        float neonFacing = clamp(abs(dot(normalize(vNeonNormal), normalize(vNeonView))), 0.0, 1.0);
+        float neonCue = mix(1.0, uDepthDim, smoothstep(uDepthNear, uDepthFar, length(vNeonView)));
+        ${
+          kind === "core"
+            ? `float neonHot = pow(neonFacing, 4.0) * uHotMix;
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), neonHot) * neonCue;`
+            : `diffuseColor.a *= pow(neonFacing, uHaloFalloff) * neonCue;`
+        }`
+      );
+  };
+}
+
+/**
  * Flags the first `count` elements of an instance attribute for upload.
  *
  * Without a range three re-uploads the whole buffer, which for edge meshes
@@ -187,6 +263,8 @@ export class SceneRenderer {
   private overlayCamera = new THREE.OrthographicCamera(0, 1, 0, 1, -10, 10);
 
   private style: SceneStyle = { ...DEFAULT_SCENE_STYLE };
+  /** Glow attenuation for the current polytope's edge count; see setPolytope. */
+  private haloDensity = 1;
 
   // Background
   private videoTexture: THREE.VideoTexture | null = null;
@@ -268,6 +346,10 @@ export class SceneRenderer {
 
     this.camera = new THREE.PerspectiveCamera(CAMERA_FOV, 1, 0.1, 100);
     this.camera.position.set(0, 0, CAMERA_DISTANCE);
+    // Depth cue spans the object's own depth: full weight at its front face,
+    // dimmed past its back. The object sits at the origin, so this is fixed.
+    NEON_UNIFORMS.uDepthNear.value = CAMERA_DISTANCE - 1.0;
+    NEON_UNIFORMS.uDepthFar.value = CAMERA_DISTANCE + 1.6;
     this.camera.lookAt(0, 0, 0);
 
     // ---- background video quad
@@ -337,8 +419,22 @@ export class SceneRenderer {
     // ---- polytope instanced tubes
     // Unit cylinder along +Y; per-instance matrix stretches it between the two
     // projected endpoints. Open-ended: the caps would only ever face inward.
-    const coreGeometry = new THREE.CylinderGeometry(1, 1, 1, 6, 1, true);
-    const jointGeometry = new THREE.SphereGeometry(1, 8, 6);
+    const coreGeometry = new THREE.CylinderGeometry(1, 1, 1, 8, 1, true);
+    const jointGeometry = new THREE.SphereGeometry(1, 12, 8);
+
+    // The chroma ghosts are halo-shaded too, so the aberration fades with it.
+    const neonGhost = (tint: number): THREE.MeshBasicMaterial => {
+      const material = new THREE.MeshBasicMaterial({
+        color: tint,
+        toneMapped: false,
+        transparent: true,
+        opacity: CHROMA_OPACITY,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      neonShading(material, "halo");
+      return material;
+    };
 
     const makeInstanced = (
       geometry: THREE.BufferGeometry,
@@ -353,51 +449,31 @@ export class SceneRenderer {
       return mesh;
     };
 
-    this.core = makeInstanced(
-      coreGeometry,
-      new THREE.MeshBasicMaterial({ toneMapped: false }),
-      MAX_EDGE_INSTANCES
-    );
-    this.halo = makeInstanced(
-      coreGeometry,
-      new THREE.MeshBasicMaterial({
-        toneMapped: false,
-        transparent: true,
-        opacity: DEFAULT_SCENE_STYLE.glowStrength,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-      }),
-      MAX_EDGE_INSTANCES
-    );
+    const coreMaterial = new THREE.MeshBasicMaterial({ toneMapped: false });
+    neonShading(coreMaterial, "core");
+    this.core = makeInstanced(coreGeometry, coreMaterial, MAX_EDGE_INSTANCES);
+    const haloMaterial = new THREE.MeshBasicMaterial({
+      toneMapped: false,
+      transparent: true,
+      opacity: DEFAULT_SCENE_STYLE.glowStrength,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    neonShading(haloMaterial, "halo");
+    this.halo = makeInstanced(coreGeometry, haloMaterial, MAX_EDGE_INSTANCES);
     this.chromaA = makeInstanced(
       coreGeometry,
-      new THREE.MeshBasicMaterial({
-        color: 0xff2040,
-        toneMapped: false,
-        transparent: true,
-        opacity: 0.16,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-      }),
+      neonGhost(0xff2040),
       MAX_EDGE_INSTANCES
     );
     this.chromaB = makeInstanced(
       coreGeometry,
-      new THREE.MeshBasicMaterial({
-        color: 0x2080ff,
-        toneMapped: false,
-        transparent: true,
-        opacity: 0.16,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-      }),
+      neonGhost(0x2080ff),
       MAX_EDGE_INSTANCES
     );
-    this.joints = makeInstanced(
-      jointGeometry,
-      new THREE.MeshBasicMaterial({ toneMapped: false }),
-      MAX_VERTICES
-    );
+    const jointMaterial = new THREE.MeshBasicMaterial({ toneMapped: false });
+    neonShading(jointMaterial, "core");
+    this.joints = makeInstanced(jointGeometry, jointMaterial, MAX_VERTICES);
 
     // instanceColor must exist before first render; seed it white.
     for (const mesh of [this.core, this.halo, this.joints]) {
@@ -516,6 +592,20 @@ export class SceneRenderer {
     // Edge instance counts are owned by updateOrientation, which runs before
     // the next render and knows how far each edge had to be subdivided.
     this.joints.count = polytope.vertices.length;
+    // Additive halos stack: where a 120-cell packs hundreds of edges into the
+    // frame's centre they sum to flat white, and the same glow that flatters
+    // an 8-cell erases the structure. Scale the glow down with edge density
+    // (inverse square root, so the dense polytopes keep a visible halo), and
+    // never up: the sparse ones already sit at the slider's value.
+    this.haloDensity = Math.min(1, Math.sqrt(HALO_REFERENCE_EDGES / Math.max(1, polytope.edges.length)));
+    this.applyGlow();
+  }
+
+  /** Halo and chroma opacity = the slider, attenuated for the current polytope. */
+  private applyGlow(): void {
+    (this.halo.material as THREE.MeshBasicMaterial).opacity = this.style.glowStrength * this.haloDensity;
+    (this.chromaA.material as THREE.MeshBasicMaterial).opacity = CHROMA_OPACITY * this.haloDensity;
+    (this.chromaB.material as THREE.MeshBasicMaterial).opacity = CHROMA_OPACITY * this.haloDensity;
   }
 
   /**
@@ -529,7 +619,7 @@ export class SceneRenderer {
 
   setStyle(style: Partial<SceneStyle>): void {
     Object.assign(this.style, style);
-    (this.halo.material as THREE.MeshBasicMaterial).opacity = this.style.glowStrength;
+    this.applyGlow();
     const chromaOn = this.style.chromaSplit > 1e-5;
     this.chromaA.visible = chromaOn;
     this.chromaB.visible = chromaOn;
@@ -841,7 +931,9 @@ export class SceneRenderer {
 
     // Halo shares position and length but is fatter; the two chroma ghosts are
     // the halo transform verbatim, offset by the mesh's own position.
-    const fat = tubeRadius * 3.2;
+    // Fatter than before the falloff shader: the visible glow ends where the
+    // alpha does, well inside the sleeve's geometric edge.
+    const fat = tubeRadius * 4.2;
     const halo = this.haloMatrix;
     const chromaA = this.chromaAMatrix;
     const chromaB = this.chromaBMatrix;

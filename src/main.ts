@@ -10,6 +10,17 @@ import "./styles.css";
 import "./ui/instrument.css";
 
 import { App, type AppElements } from "./app.ts";
+import { detectDevice, watchDevice } from "./device.ts";
+
+// Published on <html> before anything renders, so the boot screen can already
+// show the landscape hint on a portrait phone.
+watchDevice(detectDevice());
+
+// The in-stage rotate hint is CSS-driven; a tap retires it for this visit.
+const orientationHint = document.getElementById("orientation-hint");
+orientationHint?.addEventListener("click", () => {
+  orientationHint.hidden = true;
+});
 
 function required<T extends HTMLElement>(id: string): T {
   const el = document.getElementById(id);

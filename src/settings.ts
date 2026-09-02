@@ -170,6 +170,16 @@ export const DEFAULT_SETTINGS: Settings = {
 
 const STORAGE_KEY = "hand-controlled-4d/settings/v1";
 
+/**
+ * Stamped into every saved entry. An entry without it predates device
+ * profiles (device.ts): it was written by a build whose only factory state was
+ * the desktop one, and finishing the first-run guide persisted every key --
+ * so its `outputAspect: "9:16"` on a tablet is an artefact, not a choice.
+ * `loadSettings` ignores device-dependent keys from such entries once.
+ */
+const PROFILE_VERSION = 1;
+const PROFILE_KEY = "profileVersion";
+
 /** Numeric guards so a hand-edited localStorage entry cannot break the render. */
 const RANGES: Partial<Record<keyof Settings, [number, number]>> = {
   smoothingAlpha: [0.02, 1],
@@ -206,8 +216,13 @@ function isPolytopeName(value: string): value is PolytopeName {
   return (POLYTOPE_NAMES as readonly string[]).includes(value);
 }
 
-export function loadSettings(): Settings {
-  const settings: Settings = { ...DEFAULT_SETTINGS };
+/**
+ * `defaults` is the factory state for THIS device (see device.ts): the stored
+ * entry only overrides keys it actually holds, so a handheld that has never
+ * touched the output frame keeps its full-stage composition.
+ */
+export function loadSettings(defaults: Settings = DEFAULT_SETTINGS): Settings {
+  const settings: Settings = { ...defaults };
   let stored: unknown;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -218,7 +233,12 @@ export function loadSettings(): Settings {
   }
   if (typeof stored !== "object" || stored === null) return settings;
 
+  const legacyEntry = (stored as Record<string, unknown>)[PROFILE_KEY] !== PROFILE_VERSION;
+
   for (const key of Object.keys(DEFAULT_SETTINGS) as Array<keyof Settings>) {
+    // A key whose factory value this device overrides, read from an entry
+    // saved before that override existed, holds the desktop default.
+    if (legacyEntry && defaults[key] !== DEFAULT_SETTINGS[key]) continue;
     const value = (stored as Record<string, unknown>)[key];
     const fallback = DEFAULT_SETTINGS[key];
     if (typeof value !== typeof fallback) continue;
@@ -253,7 +273,10 @@ export function loadSettings(): Settings {
 
 export function saveSettings(settings: Settings): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ ...settings, [PROFILE_KEY]: PROFILE_VERSION })
+    );
   } catch {
     // Private mode or a full quota: settings simply do not persist.
   }

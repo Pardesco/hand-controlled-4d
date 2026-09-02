@@ -110,9 +110,11 @@
     background var(--t-fast) var(--ease-enter), color var(--t-fast) var(--ease-enter);
 }
 
-.plane:hover:not(:disabled) {
-  border-color: var(--border-strong);
-  color: var(--fg);
+@media (hover: hover) {
+  .plane:hover:not(:disabled) {
+    border-color: var(--border-strong);
+    color: var(--fg);
+  }
 }
 
 .plane:disabled {
@@ -621,8 +623,10 @@
   transition: color var(--t-fast) var(--ease-enter);
 }
 
-.section__toggle:hover {
-  color: var(--fg);
+@media (hover: hover) {
+  .section__toggle:hover {
+    color: var(--fg);
+  }
 }
 
 .section.is-open .section__toggle {
@@ -766,9 +770,11 @@
   border-left: 0;
 }
 
-.segmented__item:hover:not(:disabled) {
-  background: var(--surface-raised);
-  color: var(--fg);
+@media (hover: hover) {
+  .segmented__item:hover:not(:disabled) {
+    background: var(--surface-raised);
+    color: var(--fg);
+  }
 }
 
 .segmented__item.is-on {
@@ -897,9 +903,11 @@
   transition: background var(--t-fast) var(--ease-enter), color var(--t-fast) var(--ease-enter);
 }
 
-.numeric__step:hover:not(:disabled) {
-  background: var(--surface-raised);
-  color: var(--fg);
+@media (hover: hover) {
+  .numeric__step:hover:not(:disabled) {
+    background: var(--surface-raised);
+    color: var(--fg);
+  }
 }
 
 .numeric__input {
@@ -1025,10 +1033,12 @@
     border-color var(--t-fast) var(--ease-enter);
 }
 
-.action:hover:not(:disabled) {
-  background: var(--surface-raised);
-  color: var(--fg);
-  border-color: var(--fg-faint);
+@media (hover: hover) {
+  .action:hover:not(:disabled) {
+    background: var(--surface-raised);
+    color: var(--fg);
+    border-color: var(--fg-faint);
+  }
 }
 
 .action:disabled {
@@ -1042,8 +1052,10 @@
   background: color-mix(in srgb, var(--drive) 14%, var(--surface));
 }
 
-.action--primary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--drive) 26%, var(--surface));
+@media (hover: hover) {
+  .action--primary:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--drive) 26%, var(--surface));
+  }
 }
 
 .action--lg {

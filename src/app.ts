@@ -19,6 +19,7 @@ import {
 import { computeCropTransform, videoToDisplay, type CropTransform } from "./coords.ts";
 import { createControls, type Controls } from "./controls.ts";
 import { DebugOverlay, type OverlayHand } from "./debugOverlay.ts";
+import { detectDevice, deviceDefaults, tryLockLandscape } from "./device.ts";
 import { GestureMapper, type GestureFrame, type GestureHandInput } from "./gestureMap.ts";
 import { FINGER_MAP, PlaneDriveMapper, THUMB_TIP, type PlaneDriveFrame } from "./planeDrive.ts";
 import { assignHands, NO_HANDS } from "./handAssignment.ts";
@@ -144,7 +145,10 @@ function setSlotAlpha(slot: SlotSmoothers, alpha: number): void {
 }
 
 export class App {
-  private settings: Settings = loadSettings();
+  /** Phone / tablet vs desk machine; decides the factory settings below. */
+  private readonly device = detectDevice();
+  private readonly defaults: Settings = { ...DEFAULT_SETTINGS, ...deviceDefaults(this.device) };
+  private settings: Settings = loadSettings(this.defaults);
 
   private source: VideoSource | null = null;
   private tracker: HandTracker | null = null;
@@ -326,12 +330,17 @@ export class App {
       "Loading hand tracking model (first run reads ~19 MB of local assets)...";
     try {
       this.tracker = await HandTracker.create(this.trackerOptions());
+      // Key hints are noise on a device with no keyboard; the console carries
+      // the same switches.
+      const keys = this.device.handheld ? "" : " M switches modes.";
       this.setStatus(
         synthetic
-          ? "Synthetic mode: scripted hands drive the rotation. Press D for diagnostic mode, ? for keys."
+          ? this.device.handheld
+            ? "Synthetic mode: scripted hands drive the rotation."
+            : "Synthetic mode: scripted hands drive the rotation. Press D for diagnostic mode, ? for keys."
           : this.settings.controlMode === "instrument"
-            ? "Tap thumb to a finger (right hand) to pick a plane; pinch-hold the left hand to accelerate; fist to stop. M switches modes."
-            : "Pinch thumb to index on BOTH hands to grip. Pull apart to turn it inside out. M switches modes.",
+            ? `Tap thumb to a finger (right hand) to pick a plane; pinch-hold the left hand to accelerate; fist to stop.${keys}`
+            : `Pinch thumb to index on BOTH hands to grip. Pull apart to turn it inside out.${keys}`,
         7000
       );
       this.lastBothHandsAt = performance.now();
@@ -1193,7 +1202,7 @@ export class App {
     // Resetting the instrument should not make it re-teach itself.
     const onboardingDone = this.settings.onboardingDone;
     clearSettings();
-    Object.assign(this.settings, DEFAULT_SETTINGS, { onboardingDone });
+    Object.assign(this.settings, this.defaults, { onboardingDone });
     this.keyboard.reset();
     this.hud.setLatched(this.keyboard.latched);
     this.controls?.refresh();
@@ -1219,7 +1228,40 @@ export class App {
     const width = window.innerWidth;
     const layout =
       width >= 2200 ? "ultrawide" : width >= 1400 ? "full" : width >= 1180 ? "compact" : "narrow";
-    if (this.el.shell.dataset.layout !== layout) this.el.shell.dataset.layout = layout;
+    const previous = this.el.shell.dataset.layout;
+    if (previous === layout) return;
+    this.el.shell.dataset.layout = layout;
+
+    // A rail that has just turned into a drawer sits OVER the composition, so
+    // it starts closed: on a tablet the two drawers together would otherwise
+    // hide all but a sliver of the stage. Going the other way, a rail that
+    // docks again gets its space back and reopens.
+    const leftWasDrawer = previous === "narrow";
+    const rightWasDrawer = previous === "narrow" || previous === "compact";
+    if (previous !== undefined) {
+      if (this.leftRailIsDrawer() !== leftWasDrawer) {
+        this.setRailLeftOpen(!this.leftRailIsDrawer(), false);
+      }
+      if (this.consoleIsDrawer() !== rightWasDrawer) {
+        this.setConsoleVisible(this.consoleDefaultVisible(), false);
+      }
+    }
+  }
+
+  /** In the narrow band the instrumentation rail overlays the stage. */
+  private leftRailIsDrawer(): boolean {
+    return this.el.shell.dataset.layout === "narrow";
+  }
+
+  /** In the compact and narrow bands the console overlays the stage. */
+  private consoleIsDrawer(): boolean {
+    const layout = this.el.shell.dataset.layout;
+    return layout === "narrow" || layout === "compact";
+  }
+
+  /** Docked: open unless the user hid it with G. Drawer: closed until asked. */
+  private consoleDefaultVisible(): boolean {
+    return !this.guiHiddenByUser && !this.consoleIsDrawer();
   }
 
   private handleResize = (): void => {
@@ -1251,7 +1293,7 @@ export class App {
     // Hide in fullscreen; on the way out, only restore the panel if the user
     // had not deliberately hidden it with `G`.
     const fullscreen = document.fullscreenElement !== null;
-    this.setConsoleVisible(fullscreen ? false : !this.guiHiddenByUser, false);
+    this.setConsoleVisible(fullscreen ? false : this.consoleDefaultVisible(), false);
   };
 
   // -------------------------------------------------------- interface modes
@@ -1278,8 +1320,8 @@ export class App {
       this.setRailLeftOpen(false, false);
       this.setShortcuts(false);
     } else {
-      this.setConsoleVisible(!this.guiHiddenByUser, false);
-      this.setRailLeftOpen(true, false);
+      this.setConsoleVisible(this.consoleDefaultVisible(), false);
+      this.setRailLeftOpen(!this.leftRailIsDrawer(), false);
     }
     this.el.railRightTab.hidden = mode === "presentation";
     this.el.railLeftTab.hidden = mode === "presentation";
@@ -1344,8 +1386,14 @@ export class App {
 
   private async toggleFullscreen(): Promise<void> {
     try {
-      if (document.fullscreenElement) await document.exitFullscreen();
-      else await document.documentElement.requestFullscreen();
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await document.documentElement.requestFullscreen();
+        // A phone going fullscreen wants the wide frame too; the lock only
+        // takes on Android and is silently refused elsewhere.
+        if (this.device.handheld) void tryLockLandscape();
+      }
     } catch {
       this.setStatus("Fullscreen was refused by the browser.", 2500);
     }

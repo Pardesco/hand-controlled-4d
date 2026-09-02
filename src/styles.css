@@ -23,6 +23,16 @@ body {
   font-family: var(--font-ui);
   font-size: var(--text-body);
   overflow: hidden;
+  /* A drawer scrolled to its end must not pull-to-refresh the whole page. */
+  overscroll-behavior: none;
+}
+
+button {
+  /* No grey flash on tap, no long-press text selection of a button label. */
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
 }
 
 /* An author `display` rule outranks the UA stylesheet's [hidden] rule. */
@@ -44,6 +54,8 @@ body {
   width: 100%;
   align-items: stretch;
   background: var(--bg);
+  /* A notch in landscape lands on a rail tab otherwise (viewport-fit=cover). */
+  padding-inline: env(safe-area-inset-left, 0px) env(safe-area-inset-right, 0px);
 }
 
 /* ============================================================= rails */
@@ -105,9 +117,11 @@ body {
     background var(--t-fast) var(--ease-enter);
 }
 
-.rail-tab:hover {
-  color: var(--fg);
-  background: var(--surface-raised);
+@media (hover: hover) {
+  .rail-tab:hover {
+    color: var(--fg);
+    background: var(--surface-raised);
+  }
 }
 
 .rail-tab__label {
@@ -397,9 +411,14 @@ body {
   position: fixed;
   inset: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--s-8);
+  /* Centred by the frame's auto margins, not by align-items: a phone held
+     sideways is shorter than the card, and auto margins let it scroll where
+     centring would clip its top. */
+  overflow-y: auto;
+  padding: max(var(--s-8), env(safe-area-inset-top, 0px))
+    max(var(--s-8), env(safe-area-inset-right, 0px))
+    max(var(--s-8), env(safe-area-inset-bottom, 0px))
+    max(var(--s-8), env(safe-area-inset-left, 0px));
   background: radial-gradient(ellipse at 50% 40%, #0b131b 0%, var(--bg) 68%);
   z-index: var(--z-boot);
 }
@@ -411,9 +430,23 @@ body {
 .boot__frame {
   position: relative;
   max-width: 42rem;
+  margin: auto;
   padding: var(--s-8);
   border: var(--hairline) solid var(--border);
   background: rgba(8, 12, 17, 0.6);
+}
+
+@media (max-width: 600px), (max-height: 560px) {
+  .boot {
+    padding: max(var(--s-5), env(safe-area-inset-top, 0px))
+      max(var(--s-5), env(safe-area-inset-right, 0px))
+      max(var(--s-5), env(safe-area-inset-bottom, 0px))
+      max(var(--s-5), env(safe-area-inset-left, 0px));
+  }
+
+  .boot__frame {
+    padding: var(--s-6);
+  }
 }
 
 .boot__eyebrow {
@@ -462,6 +495,91 @@ body {
   margin: var(--s-5) 0 0;
   color: var(--fg-faint);
   font-size: var(--text-label);
+}
+
+/* ================================================= handheld / orientation */
+
+/**
+ * Both hints key off attributes device.ts publishes on <html>: `data-handheld`
+ * (touch-primary device) and `data-orientation` (live). Neither exists for a
+ * desk machine, and both vanish the moment the device is turned sideways.
+ */
+.boot__orientation {
+  display: none;
+  align-items: flex-start;
+  gap: var(--s-5);
+  margin: var(--s-6) 0 0;
+  padding: var(--s-5);
+  border: var(--hairline) solid var(--select);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--select) 8%, transparent);
+}
+
+.boot__orientation-icon,
+.orientation-hint__icon {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  fill: none;
+  stroke: var(--select);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.boot__orientation-text {
+  margin: 0;
+  color: var(--fg-dim);
+  font-size: var(--text-label);
+  line-height: 1.5;
+}
+
+.boot__orientation-text strong {
+  display: block;
+  margin-bottom: var(--s-1);
+  color: var(--fg);
+  font-family: var(--font-display);
+  font-size: var(--text-value);
+  font-weight: 600;
+  letter-spacing: var(--track-micro);
+  text-transform: uppercase;
+}
+
+html[data-handheld="true"][data-orientation="portrait"] .boot__orientation {
+  display: flex;
+}
+
+/* In-stage version: a pill just above the bottom band, never over the centre. */
+.orientation-hint {
+  display: none;
+  position: absolute;
+  left: 50%;
+  bottom: 44px;
+  transform: translateX(-50%);
+  align-items: center;
+  gap: var(--s-4);
+  max-width: calc(100% - 2 * var(--s-6));
+  padding: var(--s-3) var(--s-5) var(--s-3) var(--s-4);
+  border: var(--hairline) solid var(--select);
+  border-radius: 999px;
+  background: var(--scrim);
+  color: var(--fg);
+  font-family: var(--font-display);
+  font-size: var(--text-label);
+  font-weight: 600;
+  letter-spacing: var(--track-micro);
+  text-transform: uppercase;
+  cursor: pointer;
+  z-index: var(--z-drawer);
+}
+
+.orientation-hint__icon {
+  width: 20px;
+  height: 20px;
+}
+
+html[data-handheld="true"][data-orientation="portrait"] .orientation-hint {
+  display: inline-flex;
 }
 
 /* ========================================================= shortcuts */

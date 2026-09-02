@@ -108,6 +108,15 @@
 }
 
 /**
+ * Touch-primary devices (see device.ts) get finger-sized controls. Keyed off
+ * the attribute rather than a media query so `?touch=1` exercises it too.
+ */
+html[data-handheld="true"] {
+  --control-h: 32px;
+  --control-h-lg: 38px;
+}
+
+/**
  * Reduced motion removes TRANSITIONS, not values. An instrument that stops
  * reporting is broken, not accessible — live bars and gauges still track.
  */

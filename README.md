@@ -95,6 +95,49 @@ instrument is operable with no hands in frame.
 Dense shapes (120-cell, 600-cell) force stereographic projection -- under
 perspective they are an unreadable ball.
 
+## Phones and tablets
+
+The instrument detects a touch-primary device with the
+`(hover: none) and (pointer: coarse)` media features (`src/device.ts`), never
+the user agent -- iPadOS asks for the desktop site by default, so its UA is a
+Mac's. On a handheld:
+
+- **The composition fills the stage.** The desktop factory setting is a 9:16
+  box so a creator records a phone-shaped clip; on an actual phone or tablet
+  that shrank the viewport to a letterboxed sliver. `Output frame` in the
+  console still offers every aspect.
+- **Rails that become drawers start closed.** Below 1180 px both rails overlay
+  the stage; on a tablet the two open drawers together hid all but a sliver of
+  the picture. The tabs on each edge open them.
+- **Landscape is hinted, not forced.** The front camera's frame is wide, so a
+  portrait viewport cover-crops the sides -- exactly where the hands are. A
+  portrait handheld gets a note on the boot screen and a dismissable pill on
+  the stage; both vanish when the device is turned. Going fullscreen from the
+  console also asks for a landscape lock, which only Android honours.
+- Pixel ratio caps at 1 (inference is the bottleneck, not fill rate), controls
+  grow to finger size, hover styles are skipped, and the notch is kept off the
+  rail tabs with `viewport-fit=cover` plus the safe-area insets.
+
+`?touch=1` forces the handheld profile in a desktop browser so all of this can
+be exercised without a device; `?touch=0` forces the desk profile.
+
+Entries saved by builds before 1.2.0 carry the desktop factory values for the
+device-dependent keys (finishing the guide persisted every key), so
+`loadSettings` ignores those keys from an entry that lacks the profile stamp.
+A choice made on this build is stamped and honoured.
+
+## Edge shading
+
+Edges are instanced tubes with a neon-tube shader injected into
+`MeshBasicMaterial` (`neonShading` in `src/sceneRenderer.ts`). One term drives
+it: how squarely the tube surface faces the camera. The core blends to white
+along its centre line so it reads as a lit glass tube with a filament; the
+additive halo's alpha falls off with the same term so the glow fades to
+nothing instead of ending in a hard band; both dim with view depth so the back
+of a 120-cell sits behind its front. The halo is also attenuated by edge count
+(inverse square root above 96 edges), because hundreds of additive sleeves
+otherwise sum to flat white in the dense polytopes. Per-frame CPU cost: none.
+
 ## Occlusion tuning (the feature that sells it)
 
 The hand hulls are written depth-only using palm span as a depth proxy.
